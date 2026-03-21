@@ -1,0 +1,25 @@
+#include "MATLABComms.hpp"
+
+void initMATLABComms() {
+  Serial.begin(115200);
+  delay(3000); // El respiro necesario para el USB del ESP32-S3
+  Serial.println("\n[SISTEMA] Módulo de comunicaciones listo.");
+}
+
+char leerComandoMATLAB() {
+  // Si hay datos esperando en el cable USB...
+  if (Serial.available() > 0) {
+    char comando = Serial.read();
+    
+    // Filtramos para hacer caso solo a nuestras letras clave
+    // (Esto evita que saltos de línea o basura activen el motor)
+    if (comando == 'U' || comando == 'D' || comando == 'S') {
+      return comando;
+    }
+  }
+  return '\0'; // Si no hay nada o es una letra no válida, devolvemos "vacío"
+}
+
+void enviarMensajeMATLAB(String mensaje) {
+  Serial.println(mensaje); // Envía el texto con un salto de línea al final
+}
