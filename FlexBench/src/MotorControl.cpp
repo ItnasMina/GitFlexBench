@@ -10,9 +10,9 @@
 TMC2209Stepper driver(&Serial1, R_SENSE, DRIVER_ADDRESS);
 
 void initMotor() {
-  Serial.println("\n=========================================");
-  Serial.println("INICIANDO MODO AVANZADO: UART + StealthChop");
-  Serial.println("=========================================\n");
+  Serial.println("\n=============================================");
+  Serial.println("INICIALIZATING MOTOR MODE: UART + StealthChop");
+  Serial.println("=============================================\n");
 
   // Configuramos pines
   pinMode(STEP_PIN, OUTPUT);

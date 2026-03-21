@@ -3,7 +3,7 @@
 void initMATLABComms() {
   Serial.begin(115200);
   delay(3000); // El respiro necesario para el USB del ESP32-S3
-  Serial.println("\n[SISTEMA] Módulo de comunicaciones listo.");
+  Serial.println("\n[SISTEM] Comunication Module Initialized.");
 }
 
 char leerComandoMATLAB() {
