@@ -13,7 +13,7 @@ char leerComandoMATLAB() {
     
     // Filtramos para hacer caso solo a nuestras letras clave
     // (Esto evita que saltos de línea o basura activen el motor)
-    if (comando == 'U' || comando == 'D' || comando == 'S') {
+    if (comando == 'U' || comando == 'D' || comando == 'R') {
       return comando;
     }
   }

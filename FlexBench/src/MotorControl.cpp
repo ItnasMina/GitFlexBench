@@ -10,10 +10,7 @@
 TMC2209Stepper driver(&Serial1, R_SENSE, DRIVER_ADDRESS);
 
 void initMotor() {
-  Serial.println("\n=============================================");
-  Serial.println("INICIALIZATING MOTOR MODE: UART + StealthChop");
-  Serial.println("=============================================\n");
-
+  
   // Configuramos pines
   pinMode(STEP_PIN, OUTPUT);
   pinMode(DIR_PIN, OUTPUT);
@@ -39,20 +36,20 @@ void initMotor() {
 void motorMove(char direccion) {
   if (direccion == 'D') {
     digitalWrite(DIR_PIN, HIGH); // Bajar
-    for (int i = 0; i < 1600; i++) { // Da una vuelta entera bajando
-      digitalWrite(STEP_PIN, HIGH);
-      delayMicroseconds(500); 
+    for (int i = 0; i < 600; i++) { // Da una vuelta entera bajando
+      digitalWrite(STEP_PIN, HIGH); 
+      delayMicroseconds(5000); 
       digitalWrite(STEP_PIN, LOW);
-      delayMicroseconds(500); 
+      delayMicroseconds(5000); 
     }
   } 
   else if (direccion == 'U') {
     digitalWrite(DIR_PIN, LOW); // Subir
-    for (int i = 0; i < 1600; i++) { // Da una vuelta entera subiendo
+    for (int i = 0; i < 600; i++) { // Da una vuelta entera subiendo
       digitalWrite(STEP_PIN, HIGH);
-      delayMicroseconds(500);
+      delayMicroseconds(5000);
       digitalWrite(STEP_PIN, LOW);
-      delayMicroseconds(500);
+      delayMicroseconds(5000);
     }
   } 
 }
