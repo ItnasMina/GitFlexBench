@@ -9,25 +9,25 @@ void setup() {
   initMATLABComms();
   initMotor();
   initSensor();
-  
-  enviarMensajeMATLAB("SISTEM READY AND WAITING");   // Avisa a MATLAB que el sistema está listo
+  sendMessageMATLAB("SISTEM INITIALIZED: READY FOR SETUP");   // Avisa a MATLAB que el sistema ha sido inicializado
+
+  sendMessageMATLAB("SISTEM READY AND WAITING");   // Avisa a MATLAB que el sistema está listo
 }
 
 void loop() {
-  char comando = leerComandoMATLAB();
+  Command comando = readCommandMATLAB();
   
-  if (comando != '\0') {
-    
-    enviarMensajeMATLAB("EXECUTING COMMAND: " + String(comando));
+  if (comando.type != '\0') {
 
-    if (comando == 'R') {
-      enviarMensajeMATLAB("RES: " + String(leerResistencia()) + " Ohms");
-    } else if (comando == 'P') {
-      //enviarMensajeMATLAB("POS: " + String(getPosicionActual()));
-    }else {
-    
-      motorMove(comando);
-      enviarMensajeMATLAB("MOVEMENT EXECUTED");
+    if (comando.type == 'R') {
+      sendMessageMATLAB("RES: " + String(leerResistencia()) + " Ohms");
+    }else if (comando.type == 'U' || comando.type == 'D') {
+      comando.value = (comando.value <= 0) ? 100 : comando.value; // Por defecto, 100 pasos
+      motorMove(comando.type, comando.value);
+      sendMessageMATLAB("MOVEMENT EXECUTED");
+    }else{
+      sendMessageMATLAB("INVALID COMMAND");
     }
+    sendMessageMATLAB("EXECUTING COMMAND: " + String(comando.type) + String(comando.value));
   }
 }

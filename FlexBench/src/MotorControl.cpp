@@ -35,24 +35,39 @@ void initMotor() {
 }
 
 
-// Función para mover el motor en una dirección dada ('U' para subir, 'D' para bajar)
-void motorMove(char direccion) {
+/* Función para mover el motor en una dirección dada:
+- 'U' para subir
+- 'D' para bajar
+*/
+void motorMove(char direccion, int steps) {
   if (direccion == 'U') {
     digitalWrite(DIR_PIN, HIGH); // Subir
-    for (int i = 0; i < 200; i++) { // Da una vuelta entera subiendo
+    for (int i = 0; i < steps; i++) {
       digitalWrite(STEP_PIN, HIGH); 
-      delayMicroseconds(5000); 
+      delayMicroseconds(1000);
       digitalWrite(STEP_PIN, LOW);
-      delayMicroseconds(5000); 
+      delayMicroseconds(1000); 
     }
   } 
   else if (direccion == 'D') {
     digitalWrite(DIR_PIN, LOW); // Bajar
-    for (int i = 0; i < 200; i++) { // Da una vuelta entera bajando
+    for (int i = 0; i < steps; i++) {
       digitalWrite(STEP_PIN, HIGH);
-      delayMicroseconds(5000);
+      delayMicroseconds(1000);
       digitalWrite(STEP_PIN, LOW);
-      delayMicroseconds(5000);
+      delayMicroseconds(1000);
     }
   } 
+}
+
+
+void setInitialPos() {
+  // Aquí podrías implementar un homing usando un sensor o simplemente asumir que el motor empieza en una posición conocida.
+  // Por ejemplo, podrías mover el motor hacia abajo hasta que un sensor de límite se active, y luego resetear la posición a cero.
+}
+
+long getActualPos() {
+  // Aquí podrías implementar un homing usando un sensor o simplemente asumir que el motor empieza en una posición conocida.
+  // Por ejemplo, podrías mover el motor hacia abajo hasta que un sensor de límite se active, y luego resetear la posición a cero.
+  return 0; // Placeholder, reemplazar con la lógica real para obtener la posición actual del motor
 }

@@ -6,22 +6,37 @@ void initMATLABComms() {
   Serial.println("\n[SISTEM] Comunication Module Initialized.");
 }
 
-// Función para leer el comando enviado por MATLAB a través del USB
-char leerComandoMATLAB() {
+
+/* Función para leer el comando enviado por MATLAB a través del USB.
+   Si no hay ningún comando o el comando no es válido, devuelve '\0'.
+   Filtra para aceptar solo los comandos:
+   - U: Mover hacia arriba
+   - D: Mover hacia abajo
+   - R: Leer resistencia
+*/
+Command readCommandMATLAB() {
+  Command cmd = {'\0', 0}; // Comando por defecto: "vacío"
   // Si hay datos esperando en el cable USB...
   if (Serial.available() > 0) {
-    char comando = Serial.read();
-    
-    // Filtramos para hacer caso solo a nuestras letras clave
-    // (Esto evita que saltos de línea o basura activen el motor)
-    if (comando == 'U' || comando == 'D' || comando == 'R') {
-      return comando;
+    String texto = Serial.readStringUntil('\n');
+    texto.trim();                   // Elimina espacios en blanco y saltos de línea
+    texto.toUpperCase();            // Convierte a mayúscula para evitar problemas de formato
+
+    if (texto.length() > 0) {
+      // Metemos la primera letra en la variable 'letra' de la caja
+      cmd.type = texto.charAt(0);
+      
+      // Si hay más texto después de la letra, lo convertimos a número
+      if (texto.length() > 1) {
+        String numeroEnTexto = texto.substring(1);
+        cmd.value = numeroEnTexto.toInt();
+      }
     }
   }
-  return '\0'; // Si no hay nada o es una letra no válida, devolvemos "vacío"
+  return cmd;
 }
 
 // Función para enviar un mensaje de texto a MATLAB a través del USB
-void enviarMensajeMATLAB(String mensaje) {
+void sendMessageMATLAB(String mensaje) {
   Serial.println(mensaje); // Envía el texto con un salto de línea al final
 }

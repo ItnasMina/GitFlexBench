@@ -1,10 +1,15 @@
 #pragma once
 #include <Arduino.h>
 
-long getPosicionActual();
+
+struct Command {
+  char type;
+  int  value;
+};
+
 
 void initMATLABComms();
 
-char leerComandoMATLAB();
+Command readCommandMATLAB();
 
-void enviarMensajeMATLAB(String mensaje);
+void sendMessageMATLAB(String mensaje);
