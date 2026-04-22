@@ -9,6 +9,7 @@
 // El objeto 'driver' ahora vive solo aquí adentro
 TMC2209Stepper driver(&Serial1, R_SENSE, DRIVER_ADDRESS);
 
+//Funcion de inicialización del motor
 void initMotor() {
   
   // Configuramos pines
@@ -33,19 +34,21 @@ void initMotor() {
   
 }
 
+
+// Función para mover el motor en una dirección dada ('U' para subir, 'D' para bajar)
 void motorMove(char direccion) {
-  if (direccion == 'D') {
-    digitalWrite(DIR_PIN, HIGH); // Bajar
-    for (int i = 0; i < 600; i++) { // Da una vuelta entera bajando
+  if (direccion == 'U') {
+    digitalWrite(DIR_PIN, HIGH); // Subir
+    for (int i = 0; i < 200; i++) { // Da una vuelta entera subiendo
       digitalWrite(STEP_PIN, HIGH); 
       delayMicroseconds(5000); 
       digitalWrite(STEP_PIN, LOW);
       delayMicroseconds(5000); 
     }
   } 
-  else if (direccion == 'U') {
-    digitalWrite(DIR_PIN, LOW); // Subir
-    for (int i = 0; i < 600; i++) { // Da una vuelta entera subiendo
+  else if (direccion == 'D') {
+    digitalWrite(DIR_PIN, LOW); // Bajar
+    for (int i = 0; i < 200; i++) { // Da una vuelta entera bajando
       digitalWrite(STEP_PIN, HIGH);
       delayMicroseconds(5000);
       digitalWrite(STEP_PIN, LOW);

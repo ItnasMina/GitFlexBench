@@ -3,14 +3,14 @@
 #include "MotorControl.hpp"
 #include "SensorControl.hpp"
 
+
 void setup() {
 
   initMATLABComms();
   initMotor();
   initSensor();
   
-  // Le decimos a MATLAB que ya hemos terminado de configurar todo
-  enviarMensajeMATLAB("SISTEM READY AND WAITING");
+  enviarMensajeMATLAB("SISTEM READY AND WAITING");   // Avisa a MATLAB que el sistema está listo
 }
 
 void loop() {
@@ -21,18 +21,13 @@ void loop() {
     enviarMensajeMATLAB("EXECUTING COMMAND: " + String(comando));
 
     if (comando == 'R') {
-      float resistencia = leerResistencia();
-      if (resistencia < 0) {
-        enviarMensajeMATLAB("ERROR: SENSOR DISCONNECTED");
-      } else {
-        enviarMensajeMATLAB("RESISTANCE: " + String(resistencia) + " Ohms");
-      }
-    } else {
+      enviarMensajeMATLAB("RES: " + String(leerResistencia()) + " Ohms");
+    } else if (comando == 'P') {
+      //enviarMensajeMATLAB("POS: " + String(getPosicionActual()));
+    }else {
     
       motorMove(comando);
-      
       enviarMensajeMATLAB("MOVEMENT EXECUTED");
-  
     }
   }
 }

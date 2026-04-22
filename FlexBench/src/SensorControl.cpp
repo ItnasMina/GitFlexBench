@@ -4,6 +4,7 @@
 // Variable para tu resistencia fija (1k Ohm)
 const float RESISTENCIA_FIJA = 1000.0;
 
+//Inicializa el sensor de resistencia
 void initSensor() {
   // En el ESP32 no es estrictamente necesario inicializar los pines analógicos,
   // pero es buena práctica configurar la resolución (por defecto es 12 bits: 0 a 4095)

@@ -6,6 +6,7 @@ void initMATLABComms() {
   Serial.println("\n[SISTEM] Comunication Module Initialized.");
 }
 
+// Función para leer el comando enviado por MATLAB a través del USB
 char leerComandoMATLAB() {
   // Si hay datos esperando en el cable USB...
   if (Serial.available() > 0) {
@@ -20,6 +21,7 @@ char leerComandoMATLAB() {
   return '\0'; // Si no hay nada o es una letra no válida, devolvemos "vacío"
 }
 
+// Función para enviar un mensaje de texto a MATLAB a través del USB
 void enviarMensajeMATLAB(String mensaje) {
   Serial.println(mensaje); // Envía el texto con un salto de línea al final
 }
