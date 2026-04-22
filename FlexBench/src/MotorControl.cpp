@@ -9,6 +9,9 @@
 // El objeto 'driver' ahora vive solo aquí adentro
 TMC2209Stepper driver(&Serial1, R_SENSE, DRIVER_ADDRESS);
 
+
+long posicionActual = 0; // Variable global para rastrear la posición actual del motor
+
 //Funcion de inicialización del motor
 void initMotor() {
   
@@ -43,31 +46,38 @@ void motorMove(char direccion, int steps) {
   if (direccion == 'U') {
     digitalWrite(DIR_PIN, HIGH); // Subir
     for (int i = 0; i < steps; i++) {
+
       digitalWrite(STEP_PIN, HIGH); 
       delayMicroseconds(1000);
       digitalWrite(STEP_PIN, LOW);
-      delayMicroseconds(1000); 
+      delayMicroseconds(1000);
+      
+      posicionActual++;
+
+      if (i % 50 == 0) yield();
     }
   } 
   else if (direccion == 'D') {
     digitalWrite(DIR_PIN, LOW); // Bajar
     for (int i = 0; i < steps; i++) {
+
       digitalWrite(STEP_PIN, HIGH);
       delayMicroseconds(1000);
       digitalWrite(STEP_PIN, LOW);
       delayMicroseconds(1000);
+
+      posicionActual--;
+
+      if (i % 50 == 0) yield();
     }
   } 
 }
 
 
 void setInitialPos() {
-  // Aquí podrías implementar un homing usando un sensor o simplemente asumir que el motor empieza en una posición conocida.
-  // Por ejemplo, podrías mover el motor hacia abajo hasta que un sensor de límite se active, y luego resetear la posición a cero.
+  posicionActual = 0;
 }
 
 long getActualPos() {
-  // Aquí podrías implementar un homing usando un sensor o simplemente asumir que el motor empieza en una posición conocida.
-  // Por ejemplo, podrías mover el motor hacia abajo hasta que un sensor de límite se active, y luego resetear la posición a cero.
-  return 0; // Placeholder, reemplazar con la lógica real para obtener la posición actual del motor
+  return posicionActual;
 }
