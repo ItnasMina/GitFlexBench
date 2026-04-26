@@ -1,7 +1,10 @@
 #include <Arduino.h>
+#include "Pinout.hpp"
 #include "MATLABComms.hpp"
 #include "MotorControl.hpp"
 #include "SensorControl.hpp"
+
+#define MESSAGE // Habilita mensajes de depuración a MATLAB
 
 
 void setup() {
@@ -9,9 +12,10 @@ void setup() {
   initMATLABComms();
   initMotor();
   initSensor();
-  sendMessageMATLAB("SISTEM INITIALIZED: READY FOR SETUP");   // Avisa a MATLAB que el sistema ha sido inicializado
 
-  sendMessageMATLAB("SISTEM READY AND WAITING");   // Avisa a MATLAB que el sistema está listo
+  #ifdef MESSAGE
+    sendMessageMATLAB("SISTEM READY AND WAITING");   // Avisa a MATLAB que el sistema está listo
+  #endif
 }
 
 void loop() {
@@ -23,14 +27,15 @@ void loop() {
 
       comando.value = (comando.value <= 0) ? 100 : comando.value; // Por defecto, 100 pasos
       motorMove(comando.type, comando.value);
-      sendMessageMATLAB("MOVEMENT EXECUTED");
+        sendMessageMATLAB("MOVEMENT EXECUTED");
+      
 
     }else if (comando.type == 'R') {
       sendMessageMATLAB("RES: " + String(leerResistencia()));
 
     }else if (comando.type == 'S') {
       setInitialPos();
-      sendMessageMATLAB("ZERO POSITION SET");
+        sendMessageMATLAB("ZERO POSITION SET");
 
     }else if (comando.type == 'P') {
 
@@ -41,10 +46,15 @@ void loop() {
       } else {
         sendMessageMATLAB("POS:" + String(getActualPos()));
       }
-
+    }else if (comando.type == 'T') {
+      setTiempoMuestro(comando.value);
+      #ifdef MESSAGE
+        sendMessageMATLAB("SAMPLE TIME SET TO: " + String(comando.value) + " ms");
+      #endif
     }else{
-      sendMessageMATLAB("INVALID COMMAND");
+      #ifdef MESSAGE
+         sendMessageMATLAB("INVALID COMMAND");
+      #endif
     }
-    sendMessageMATLAB("EXECUTING COMMAND: " + String(comando.type) + String(comando.value));
   }
 }

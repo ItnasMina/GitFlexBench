@@ -1,8 +1,10 @@
+#include <Arduino.h>
 #include "SensorControl.hpp"
 #include "Pinout.hpp"
 
+
 // Variable para tu resistencia fija (1k Ohm)
-const float RESISTENCIA_FIJA = 1000.0;
+const float resitencia_aux = 989.0;
 
 //Inicializa el sensor de resistencia
 void initSensor() {
@@ -21,7 +23,7 @@ float leerResistencia() {
   if (valorCrudo <= 0) return 0.0;     // Cortocircuito
   
   // Aplicamos la fórmula del divisor de tensión
-  float resistenciaFilaflex = (valorCrudo * RESISTENCIA_FIJA) / (4095.0 - valorCrudo);
+  float resistenciaFilaflex = (valorCrudo * resitencia_aux) / (4095.0 - valorCrudo);
   
   return resistenciaFilaflex;
 }

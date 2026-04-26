@@ -1,6 +1,7 @@
+#include <TMCStepper.h>
+#include <Arduino.h>
 #include "MotorControl.hpp"
 #include "Pinout.hpp"
-#include <TMCStepper.h>
 
 // --- CONFIGURACIÓN DEL DRIVER (Oculta del main) ---
 #define R_SENSE 0.11f
@@ -11,6 +12,11 @@ TMC2209Stepper driver(&Serial1, R_SENSE, DRIVER_ADDRESS);
 
 
 long posicionActual = 0; // Variable global para rastrear la posición actual del motor
+int tiempoMuestreo = 0;
+
+void setTiempoMuestro(int ms) {
+  tiempoMuestreo = ms;
+}
 
 //Funcion de inicialización del motor
 void initMotor() {
