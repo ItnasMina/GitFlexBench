@@ -44,6 +44,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
     properties (Access = private)
     ESP32           % El puerto serie
     TimerDatos      % El cronómetro para pedir datos
+    PauseTime = 3   % Duración de la pausa de estabilización
     
     % Registro de alturas del ciclo
     AlturaMax = 0
@@ -59,6 +60,8 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
 
     methods (Access = private)
         
+
+        % Función que permite entender los mensajes enviados desde la ESP32
         function leerMensajeSerie(app, src, ~)
             try
                 mensaje = readline(src);
@@ -78,7 +81,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                         app.SetMinButton.Enable = 'off';    %Paso siguiente
                         app.SetMaxButton.Enable = 'on';
                         app.MonitorTextArea.Value = [app.MonitorTextArea.Value; 
-                            "> MINIMUN set at: " + string(val)];
+                            "> MINIMUM set at: " + string(val)];
                     else
                         uialert(app.UIFigure, "MIN HEIGHT must be greater or equal than ZERO.", "Calibration error");
                     end
@@ -139,13 +142,13 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
         % Button pushed function: ConnectButton
         function ConnectButtonPushed(app, event)
             try
-                % Leemos lo que el usuario ha seleccionado en los desplegables
+                % Se lee lo seleccionado en los desplegables del Puerto y BaurRate
                 app.ESP32 = serialport(app.PortDropDown.Value, str2double(app.BaudRateDropDown.Value));
                 
-                % Nuestros mensajes terminan con un "Enter" (CR/LF)
+                % Se configura el terminador a "Enter" (CR/LF)
                 configureTerminator(app.ESP32, "CR/LF");
 
-                % Cada vez que veas un terminator (CR/LF), ejecuta leerMensajeSerie
+                % Se ejecuta leerMensajeSerie cada vez que se lea un terminator (CR/LF), 
                 configureCallback(app.ESP32, "terminator", @app.leerMensajeSerie);
                 
                 % Cambiamos la luz a verde y el texto del botón
@@ -159,7 +162,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                 app.MovePanel.Enable = "on";
                 
             catch ME
-                % Si algo falla (ej. el puerto está en uso), sacamos una alerta
+                % Si algo falla, sacamos una alerta
                 uialert(app.UIFigure, "Connection error: " + ME.message, "Connection Error");
                 app.ConnectLamp.Color = 'red';
                 app.ConnectButton.Text = 'Error in connection';
@@ -168,36 +171,35 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
 
         % Value changed function: ComandEditField
         function ComandEditFieldValueChanged(app, event)
-            % 1. Leemos lo que has escrito y lo pasamos a mayúsculas por seguridad
+            % 1. Se lee el mensaje y se pone en mayúsculas
             textoEscrito = upper(app.ComandEditField.Value);
             
-            % 2. Verificamos que estamos conectados antes de enviar nada
+            % 2. Se verifica que el puerto este conectado
             if isempty(app.ESP32) || ~isvalid(app.ESP32)
-                uialert(app.UIFigure, "Conecta el puerto primero.", "Error");
+                uialert(app.UIFigure, "Connect the port first.", "Error");
                 return;
             end
             
-            % 3. ENVIAMOS EL COMANDO AL ESP32
+            % 3. Se envia el mensaje a la ESP32
             writeline(app.ESP32, textoEscrito);
             
-            % 4. Mostramos en nuestro monitor lo que acabamos de enviar
-            % Le pongo un "> " delante para diferenciar lo que enviamos de lo que recibimos
+            % 4. Se muestra en la terminal el mensaje con "> "
             app.MonitorTextArea.Value = [app.MonitorTextArea.Value; "> " + textoEscrito];
             scroll(app.MonitorTextArea, 'bottom');
             
-            % 5. Limpiamos la barra de texto para que puedas escribir el siguiente rápido
+            % 5. Se limpia la barra de comandos
             app.ComandEditField.Value = '';
             
         end
 
         % Button pushed function: UpButton
         function UpButtonPushed(app, event)
-            writeline(app.ESP32,"U5");
+            writeline(app.ESP32,"U5"); %Manda subir 5 steps
         end
 
         % Button pushed function: DownButton
         function DownButtonPushed(app, event)
-            writeline(app.ESP32,"D5")
+            writeline(app.ESP32,"D5") %Manda bajar 5 steps
         end
 
         % Button pushed function: SetMaxButton
@@ -217,7 +219,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
         % Button pushed function: SetHeightsButton
         function SetHeightsButtonPushed(app, event)
             app.Set0Button.Enable = 'on';
-            app.SetHeightsButton.Enable = 'off'; % Se desactiva para evitar reiniciar a mitad
+            app.SetHeightsButton.Enable = 'off';
             
             app.MonitorTextArea.Value = [app.MonitorTextArea.Value; "> CALIBRATION MODE ACTIVATED"];
         end
@@ -225,45 +227,48 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
         % Button pushed function: Set0Button
         function Set0ButtonPushed(app, event)
             if ~isempty(app.ESP32) && isvalid(app.ESP32)
-                writeline(app.ESP32, "S"); % Manda hacer cero
-                app.Set0Button.Enable = 'off'; % Se deshabilita al usarse
+                writeline(app.ESP32, "S"); % Manda establecer la posición como nuevo cero
+                app.Set0Button.Enable = 'off';
             end
         end
 
         % Button pushed function: BigUpButton
         function BigUpButtonPushed(app, event)
-            writeline(app.ESP32,"U50")
+            writeline(app.ESP32,"U50")  %Manda subir 50 steps
         end
 
         % Button pushed function: BigDownButton
         function BigDownButtonPushed(app, event)
-            writeline(app.ESP32,"D50")
+            writeline(app.ESP32,"D50")  %Manda bajar 50 steps
         end
 
         % Button pushed function: StartTestButton
         function StartTestButtonPushed(app, event)
-        
-        % 0. Comprobaciones iniciales
+    
+      % ============================= 
+      % 0. COMPROBACIONES INICIALES
+      % =============================
+        % .1 Comprobación del puerto
         if isempty(app.ESP32) || ~isvalid(app.ESP32)
-            uialert(app.UIFigure, "Conecta el puerto primero.", "Error");
+            uialert(app.UIFigure, "Please, connect first the port", "Connection error");
             return;
         end
         
-        % Comprobación de Ciclos
+        % .2 Comprobación de Ciclos
         nCiclos = app.CycleNumberEditField.Value;
         if nCiclos <= 0 
             uialert(app.UIFigure, "The number of cycles must be greater than 0.", "Test parameters incomplete");
             return;
         end
         
-        % Barrera de seguridad para los datos de la probeta
+        % .3 Comprobación de los datos de la probeta
         if app.WidthEditField.Value <= 0
-            uialert(app.UIFigure, "Please, enter the test tube width value.", "Specimen data incomplete");
+            uialert(app.UIFigure, "Please, enter the specimen width value.", "Specimen data incomplete");
             return;
         end
         
         if app.ThicknessEditField.Value <= 0
-            uialert(app.UIFigure, "Please, enter the test tube thickness value.", "Specimen data incomplete");
+            uialert(app.UIFigure, "Please, enter the specimen thickness value.", "Specimen data incomplete");
             return;
         end
         
@@ -275,20 +280,28 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
         
         
         try
-            % 1. BLOQUEAR INTERFAZ (Modo Ensayo)
+
+          %=====================================
+          % 1. BLOQUEAR INTERFAZ (Modo Ensayo)
+          % ====================================
+            % .1 Bloqueo Botones
             app.MovePanel.Enable ="off";
             app.SetPanel.Enable ="off";
             app.TestPanel.Enable ="off";
             app.ResistancePanel.Enable ="off";
             app.ParametersPanel.Enable ="off";
 
+            % .2 Bloqueo de la funcionalidad de comandos
             configureCallback(app.ESP32, "off");
             flush(app.ESP32); 
             
             app.MonitorTextArea.Value = [app.MonitorTextArea.Value; "> Preparing: Going to max height..."];
             scroll(app.MonitorTextArea, 'bottom');
             
-            % --- 2. AJUSTE INICIAL ---
+          % ===================
+          % 2. AJUSTE INICIAL
+          % ===================
+            % .1 Obtención de la posicion actual
             writeline(app.ESP32, "P"); 
             posActual = NaN;
             while true
@@ -299,106 +312,151 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                     break;
                 end
             end
-            
-            distancia = app.AlturaMax - posActual;
+            % .2 Cálculo de distacia a MAX y dirección
+            posicionPlana = (app.AlturaMax+app.AlturaMin) / 2;
+            amplitudMedia = (app.AlturaMax - app.AlturaMin) / 2;
+
+            distancia = posicionPlana - posActual;
+           
+            % .3 Espera a la llegada a MAX
+
             if distancia > 0
                 writeline(app.ESP32, "U" + string(distancia));
             elseif distancia < 0
                 writeline(app.ESP32, "D" + string(-distancia));
             end
-            
+                
             if distancia ~= 0
                 while ~startsWith(readline(app.ESP32), "MOVEMENT EXECUTED")
                 end
             end
-            
-            % --- 3. CÁLCULO DE LOS TROZOS DE MOVIMIENTO ---
+
+          % ================================
+          % 3. BUCLE DE ENSAYO (STOP & GO)
+          % ================================
+
+            % .1 Configuración previa
             amplitud = app.AlturaMax - app.AlturaMin;
-            
-            % FORZAMOS EL MÁXIMO MUESTREO: 1 lectura por cada 1 paso mecánico
             pasosMuestreo = 1; 
             datosEnsayo = [];
+            t_inicio = tic; % Inicio cronometro interno
             
-            % >>> INICIAMOS EL CRONÓMETRO DEL ENSAYO <<<
-            t_inicio = tic;
-            
-            % --- 4. BUCLE DE ENSAYO (STOP & GO) ---
+            % .2 Bucle
             for i = 1:nCiclos
-                % 1. Creamos la línea principal del ciclo
+                
                 nuevaLinea = string(sprintf("> TEST: Cycle %d/%d (0.0%%)", i, nCiclos));
                 app.MonitorTextArea.Value = [app.MonitorTextArea.Value; nuevaLinea];
                 scroll(app.MonitorTextArea, 'bottom');
+
+                pasosTotalesCiclo = amplitudMedia * 4;
+                pasosDados = 0;
                 
-                % --- A) BAJADA TROCEADA ---
-                pasosRestantes = amplitud;
+                % ----------------------
+                % .2a SUBIDA 50% → 100% 
+                % ----------------------
+                pasosRestantes = amplitudMedia;
                 while pasosRestantes > 0
                     pasos = min(pasosMuestreo, pasosRestantes);
                     
-                    writeline(app.ESP32, "D" + string(pasos));
-                    while ~startsWith(readline(app.ESP32), "MOVEMENT EXECUTED")
-                    end
-                    
-                    writeline(app.ESP32, "P");
-                    posTemp = NaN;
-                    while true
-                        resp = readline(app.ESP32);
-                        if startsWith(resp, "POS:")
-                            num = regexp(resp, '-?\d+\.?\d*', 'match');
-                            posTemp = str2double(num{1});
-                            break;
-                        end
-                    end
-                    
-                    writeline(app.ESP32, "R");
-                    resTemp = NaN;
-                    while true
-                        resp = readline(app.ESP32);
-                        if startsWith(resp, "RES:")
-                            num = regexp(resp, '-?\d+\.?\d*', 'match');
-                            resTemp = str2double(num{1});
-                            break;
-                        end
-                    end
-                    
-                    tiempoActual = toc(t_inicio);
-                    datosEnsayo = [datosEnsayo; i, posTemp, resTemp, tiempoActual];
-                    pasosRestantes = pasosRestantes - pasos;
-                    
-                    % --- ACTUALIZACIÓN DINÁMICA DEL PORCENTAJE ---
-                    progreso = ((amplitud - pasosRestantes) / (2 * amplitud)) * 100;
-                    
-                    lineas = string(app.MonitorTextArea.Value);
-                    lineas(end) = sprintf("> TEST: Cycle %d/%d (%.1f%%)", i, nCiclos, progreso);
-                    app.MonitorTextArea.Value = cellstr(lineas);
-                    drawnow; 
-                end
-                
-                % >>> PAUSA EN EL MÍNIMO (APARICIÓN Y BORRADO TEMPORAL) <<<
-                % 1. Forzamos el 50.0% y AÑADIMOS la línea temporal
-                lineas = string(app.MonitorTextArea.Value);
-                lineas(end) = sprintf("> ENSAYO: Ciclo %d/%d (50.0%%)", i, nCiclos);
-                lineas = [lineas; "  -> Stabilizing at Minimum (1s)..."]; % Se crea una nueva línea al final
-                app.MonitorTextArea.Value = cellstr(lineas);
-                scroll(app.MonitorTextArea, 'bottom');
-                drawnow;
-                
-                pause(1.0); 
-                
-                % 2. BORRAMOS la línea temporal
-                lineas = string(app.MonitorTextArea.Value);
-                lineas(end) = []; % Esto destruye la última posición del array (el aviso)
-                app.MonitorTextArea.Value = cellstr(lineas);
-                drawnow;
-                
-                % --- B) SUBIDA TROCEADA ---
-                pasosRestantes = amplitud;
-                while pasosRestantes > 0
-                    pasos = min(pasosMuestreo, pasosRestantes);
-                    
+                    % a.1 Subir
                     writeline(app.ESP32, "U" + string(pasos));
+
+                    % a.2 Espera a la llegada
+                    while ~startsWith(readline(app.ESP32), "MOVEMENT EXECUTED"); end
+
+                    % a.3 Lectura de posición, resitencia y tiempo
+                    writeline(app.ESP32, "P");
+                    posTemp = NaN;
+                    while true
+                        resp = readline(app.ESP32);
+                        if startsWith(resp, "POS:")
+                            num = regexp(resp, '-?\d+\.?\d*', 'match');
+                            posTemp = str2double(num{1});
+                            break;
+                        end
+                    end
+                    
+                    writeline(app.ESP32, "R");
+                    resTemp = NaN;
+                    while true
+                        resp = readline(app.ESP32);
+                        if startsWith(resp, "RES:")
+                            num = regexp(resp, '-?\d+\.?\d*', 'match');
+                            resTemp = str2double(num{1});
+                            break;
+                        end
+                    end
+
+                    tiempoActual = toc(t_inicio);
+
+                    % a.4 Guardado en vector y actualización de pasos restantes
+                    datosEnsayo = [datosEnsayo; i, posTemp, resTemp, tiempoActual];
+                    pasosRestantes = pasosRestantes - pasos;
+                    pasosDados = pasosDados + pasos;
+                    
+                    % a.5 Actualización dinémica del porcentaje
+                    progreso = ((pasosDados) / (pasosTotalesCiclo)) * 100;
+                    
+                    lineas = string(app.MonitorTextArea.Value);
+                    lineas(end) = sprintf("> TEST: Cycle %d/%d (%.1f%%)", i, nCiclos, progreso);
+                    app.MonitorTextArea.Value = cellstr(lineas);
+                    drawnow; 
+                end
+                
+                % ---------------------------------------
+                % .2b Pausa de estabilización en Máximo 
+                % ---------------------------------------
+
+                % b.1 Mostrar por pantalla
+                lineas = string(app.MonitorTextArea.Value);
+                lineas(end) = sprintf("> TEST: Cycle %d/%d (50.0%%)", i, nCiclos);
+                lineas = [lineas; "  -> Stabilizing at Maximum (3s)..."];   %Línea temporal
+                app.MonitorTextArea.Value = cellstr(lineas);
+                scroll(app.MonitorTextArea, 'bottom');
+                drawnow;
+                
+                % b.2 Bucle activo de lectura
+                t_pausa = tic;
+
+                while toc(t_pausa) < app.PauseTime
+                    writeline(app.ESP32, "R");
+                    resTemp = NaN;
+                    while true
+                        resp = readline(app.ESP32);
+                        if startsWith(resp, "RES:")
+                            num = regexp(resp, '-?\d+\.?\d*', 'match');
+                            resTemp = str2double(num{1});
+                            break;
+                        end
+                    end
+                    
+                    tiempoActual = toc(t_inicio);
+                    datosEnsayo = [datosEnsayo; i, posTemp, resTemp, tiempoActual];
+                    drawnow; 
+                end
+                
+                % b.3 Borramos la línea temporal
+                lineas = string(app.MonitorTextArea.Value);
+                lineas(end) = []; 
+                app.MonitorTextArea.Value = cellstr(lineas);
+                drawnow;
+                
+                % ----------------------
+                % .2c BAJADA 100% → 0% 
+                % ----------------------
+
+                pasosRestantes = amplitudMedia*2;
+                while pasosRestantes > 0
+                    pasos = min(pasosMuestreo, pasosRestantes);
+                    
+                    % c.1 Bajar
+                    writeline(app.ESP32, "D" + string(pasos));
+
+                    % c.2 Espera a la llegada
                     while ~startsWith(readline(app.ESP32), "MOVEMENT EXECUTED")
                     end
                     
+                    % c.3 Lectura de posición, resitencia y tiempo
                     writeline(app.ESP32, "P");
                     posTemp = NaN;
                     while true
@@ -422,80 +480,195 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                     end
                     
                     tiempoActual = toc(t_inicio);
+
+                    % c.4 Guardado en vector y actualización de pasos restantes
                     datosEnsayo = [datosEnsayo; i, posTemp, resTemp, tiempoActual];
                     pasosRestantes = pasosRestantes - pasos;
+                    pasosDados = pasosDados + pasos;
                     
-                    % --- ACTUALIZACIÓN DINÁMICA DEL PORCENTAJE ---
-                    progreso = 50 + ((amplitud - pasosRestantes) / (2 * amplitud)) * 100;
-                    
+                    % c.5 Actualización dinémica del porcentaje
+                    progreso = (pasosDados / pasosTotalesCiclo) * 100;
                     lineas = string(app.MonitorTextArea.Value);
                     lineas(end) = sprintf("> TEST: Cycle %d/%d (%.1f%%)", i, nCiclos, progreso);
                     app.MonitorTextArea.Value = cellstr(lineas);
                     drawnow; 
                 end
-                
-                % >>> PAUSA EN EL MÁXIMO (APARICIÓN Y CIERRE DE CICLO) <<<
-                % 1. Forzamos el 100.0% y AÑADIMOS la línea temporal
+
+                % ---------------------------------------
+                % .2d Pausa de estabilización en Máximo 
+                % ---------------------------------------
+
+                % d.1 Mostrar por pantalla
                 lineas = string(app.MonitorTextArea.Value);
-                lineas(end) = sprintf("> TEST: Cycle %d/%d (100.0%%)", i, nCiclos);
-                lineas = [lineas; "  -> Stabilizing at Minimum (1s)..."];
+                lineas = [lineas; "  -> Stabilizing at Minimum (3s)..."];
                 app.MonitorTextArea.Value = cellstr(lineas);
                 scroll(app.MonitorTextArea, 'bottom');
                 drawnow;
                 
-                pause(1.0); 
+                % d.2 Bucle activo de lectura
+                t_pausa = tic;
+                while toc(t_pausa) < app.PauseTime
+                    writeline(app.ESP32, "R"); 
+                    resTemp = NaN;
+                    while true
+                        resp = readline(app.ESP32);
+                        if startsWith(resp, "RES:")
+                            num = regexp(resp, '-?\d+\.?\d*', 'match');
+                            resTemp = str2double(num{1});
+                            break;
+                        end
+                    end
+                    
+                    tiempoActual = toc(t_inicio);
+                    datosEnsayo = [datosEnsayo; i, posTemp, resTemp, tiempoActual];
+                    drawnow; 
+                end
                 
-                % 2. BORRAMOS la línea temporal y AÑADIMOS la marca de "Completado" a la línea del ciclo
+                % d.3 Borramos la línea temporal
                 lineas = string(app.MonitorTextArea.Value);
-                lineas(end) = []; % Destruimos el aviso de estabilización
-                lineas(end) = sprintf("> TEST: Cycle %d/%d (100.0%%) - Completed", i, nCiclos); % Sellamos la del ciclo
+                lineas(end) = [];
                 app.MonitorTextArea.Value = cellstr(lineas);
                 drawnow;
+
+                % ---------------------
+                % .2e SUBIDA 0% → 50%
+                % ---------------------
+
+                pasosRestantes = amplitudMedia; 
+                while pasosRestantes > 0
+
+                    pasos = min(pasosMuestreo, pasosRestantes);
+
+                    %e.1 Subir
+                    writeline(app.ESP32, "U" + string(pasos));
+
+                    % e.2 Espera a la llegada
+                    while ~startsWith(readline(app.ESP32), "MOVEMENT EXECUTED"); end
+
+                    % e.3 Lectura de posición, resitencia y tiempo
+                    writeline(app.ESP32, "P"); posTemp = NaN;
+                    while true
+                        resp = readline(app.ESP32)
+                        if startsWith(resp, "POS:")
+                            num = regexp(resp, '-?\d+\.?\d*', 'match')
+                            posTemp = str2double(num{1})
+                            break;
+                        end
+                    end
+
+                    writeline(app.ESP32, "R"); resTemp = NaN;
+                    while true
+                        resp = readline(app.ESP32)
+                        if startsWith(resp, "RES:")
+                            num = regexp(resp, '-?\d+\.?\d*', 'match')
+                            resTemp = str2double(num{1})
+                            break
+                        end
+                    end
+
+                    tiempoActual = toc(t_inicio);
+
+                    % e.4 Guardado en vector y actualización de pasos restantes
+                    datosEnsayo = [datosEnsayo; i, posTemp, resTemp, tiempoActual];
+                    pasosRestantes = pasosRestantes - pasos;
+                    pasosDados = pasosDados + pasos;
+                    
+                    % e.5 Actualización dinémica del porcentaje
+                    progreso = (pasosDados / pasosTotalesCiclo) * 100;
+                    lineas = string(app.MonitorTextArea.Value);
+                    lineas(end) = sprintf("> TEST: Cycle %d/%d (%.1f%%)", i, nCiclos, progreso);
+                    app.MonitorTextArea.Value = cellstr(lineas); drawnow;
+
+
+                % ---------------------------------------
+                % .2f Pausa de estabilización en Medio 
+                % ---------------------------------------
+
+                    lineas = string(app.MonitorTextArea.Value);
+                    lineas = [lineas; "  -> Stabilizing at Flat Position..."];
+                    app.MonitorTextArea.Value = cellstr(lineas); scroll(app.MonitorTextArea, 'bottom');
+                    drawnow;
+                    
+                    t_pausa = tic;
+                    while toc(t_pausa) < app.PauseTime
+                        writeline(app.ESP32, "R");
+                        resTemp = NaN;
+                        while true
+                            resp = readline(app.ESP32)
+                            if startsWith(resp, "RES:")
+                                num = regexp(resp, '-?\d+\.?\d*', 'match')
+                                resTemp = str2double(num{1})
+                                break
+                            end
+                        end
+                        tiempoActual = toc(t_inicio);
+                        datosEnsayo = [datosEnsayo; i, posTemp, resTemp, tiempoActual]
+                        drawnow; 
+                    end
+                    lineas = string(app.MonitorTextArea.Value); lineas(end) = []; 
+                    lineas(end) = sprintf("> TEST: Cycle %d/%d (100.0%%) - Completed", i, nCiclos);
+                    app.MonitorTextArea.Value = cellstr(lineas);
+                    drawnow;
+                end
                 
             end
-            % --- 5. ENSAYO FIN Y EXCEL ---
+            % =======================
+            % 5. ENSAYO FIN Y EXCEL
+            % =======================
+
+            % .1 Mostrar por pantalla
             app.MonitorTextArea.Value = [app.MonitorTextArea.Value; "> TEST COMPLETED. Processing data and generating Excel..."];
+            scroll(app.MonitorTextArea, 'bottom');
             drawnow; 
             
-            % --- A) CÁLCULO DE LA RESISTENCIA MEDIA ---
+            % ------------------------------------
+            % .a Cálculo de la resistencia media
+            % ------------------------------------
+
             resistenciaMedia = movmean(datosEnsayo(:, 3), app.NFilterIntervalEditField.Value);
             datosCompletos = [datosEnsayo, resistenciaMedia]; % Columnas: [Ciclo, Pos, Res, T, Res_Media]
             
-            % --- B) CÁLCULO AVANZADO: GAUGE FACTOR (GF) ---
-            % 1. Datos mecánicos
+            % ----------------------
+            % .B Gauge Factor (GF)
+            % ----------------------
+            
+            % B.1 Datos mecánicos
             modulo = 1;
             dientes = 60;
             diametroPrimitivo = modulo * dientes; 
             avancePorVuelta = pi * diametroPrimitivo; 
             
-            pasosPorVueltaMotor = 200; % Cambia a 400 si tu motor es de 0.9º
-            microstepping = 1;         % Cambia al valor de tu driver (ej. 16, 32)
+            pasosPorVueltaMotor = 200;
+            microstepping = 256;
             avancePorPaso = avancePorVuelta / (pasosPorVueltaMotor * microstepping); % mm/paso
+            thickness_mm = app.ThicknessEditField.Value * 10;
             
-            % 2. Longitud inicial de la probeta (L0)
-            % Cogemos el "5 cm", le quitamos el texto y lo pasamos a milímetros (50 mm)
+            % B.2 Longitud inicial de la probeta (L0)
             L0_cm = str2double(extractBefore(string(app.LengthDropDown.Value), " "));
             L0_mm = L0_cm * 10;
             
-            % Preparamos las nuevas columnas
+            %  Preparamos las nuevas columnas
             columnaDeformacion = zeros(size(datosCompletos, 1), 1);
             columnaGF = zeros(size(datosCompletos, 1), 1);
             
-            % 3. Bucle inteligente: R0 dinámico ciclo a ciclo
-            for c = 1:nCiclos
-                idxCiclo = find(datosCompletos(:, 1) == c);
+            % B.3 R0 dinámico ciclo a ciclo
+            for j = 1:nCiclos
+                idxCiclo = find(datosCompletos(:, 1) == j);
                 if ~isempty(idxCiclo)
-                    % R0 y Pos0 puros para este ciclo específico
+                    
                     R0 = datosCompletos(idxCiclo(1), 5); 
                     Pos0 = datosCompletos(idxCiclo(1), 2); 
                     
-                    for j = 1:length(idxCiclo)
-                        fila = idxCiclo(j);
+                    for k = 1:length(idxCiclo)
+                        fila = idxCiclo(k);
                         
-                        % Deformación unitaria (Strain = Epsilon)
+                        % Deflexión
                         incrementoPasos = abs(datosCompletos(fila, 2) - Pos0);
-                        deltaL_mm = incrementoPasos * avancePorPaso;
-                        epsilon = deltaL_mm / L0_mm;
+                        deflexion_mm = incrementoPasos * avancePorPaso; % Esto equivale a la flecha de pandeo
+                        
+                        % DEFORMACIÓN UNITARIA DE FLEXIÓN (Strain / Epsilon)
+                        epsilon = (6 * deflexion_mm * grosor) / L0^2
+                        
                         columnaDeformacion(fila) = epsilon;
                         
                         % Gauge Factor
@@ -503,7 +676,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                         variacionRelativaR = deltaR / R0;
                         
                         if epsilon == 0
-                            columnaGF(fila) = NaN; % Evitamos dividir por 0 al inicio del estiramiento
+                            columnaGF(fila) = NaN; % Evitamos dividir por 0
                         else
                             columnaGF(fila) = variacionRelativaR / epsilon;
                         end
@@ -664,12 +837,14 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                 Excel.Quit;
                 delete(Excel);
                 app.MonitorTextArea.Value = [app.MonitorTextArea.Value; "> Correctly saved: " + nombreArchivo];
+                scroll(app.MonitorTextArea, 'bottom');
             catch ME
                 if exist('Excel', 'var')
                     Excel.Quit;
                     delete(Excel);
                 end
                 app.MonitorTextArea.Value = [app.MonitorTextArea.Value; "> Warning: Native charting failed. " + ME.message];
+                scroll(app.MonitorTextArea, 'bottom');
             end
         
             % --- 6. RESTAURAR LA NORMALIDAD ---
@@ -955,7 +1130,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
             app.PortDropDown = uidropdown(app.ConnectPanel);
             app.PortDropDown.Items = {''};
             app.PortDropDown.DropDownOpeningFcn = createCallbackFcn(app, @PortDropDownOpening, true);
-            app.PortDropDown.Placeholder = 'Availiable Ports';
+            app.PortDropDown.Placeholder = 'Available Ports';
             app.PortDropDown.Position = [30 20 125 30];
             app.PortDropDown.Value = '';
 

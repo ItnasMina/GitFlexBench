@@ -3,15 +3,14 @@
 #include "MotorControl.hpp"
 #include "Pinout.hpp"
 
-// --- CONFIGURACIÓN DEL DRIVER (Oculta del main) ---
+// Configuración del driver TMC2209
 #define R_SENSE 0.11f
 #define DRIVER_ADDRESS 0b00
 
-// El objeto 'driver' ahora vive solo aquí adentro
 TMC2209Stepper driver(&Serial1, R_SENSE, DRIVER_ADDRESS);
 
-
-long posicionActual = 0; // Variable global para rastrear la posición actual del motor
+// Variables globales
+long posicionActual = 0;
 int tiempoMuestreo = 0;
 
 void setTiempoMuestro(int ms) {
@@ -26,7 +25,8 @@ void initMotor() {
   pinMode(DIR_PIN, OUTPUT);
   pinMode(EN_PIN, OUTPUT);
 
-  digitalWrite(EN_PIN, LOW);    // Activamos el driver
+  // Activamos el driver
+  digitalWrite(EN_PIN, LOW);
 
   // Abrimos el canal de comunicación con el TMC2209
   Serial1.begin(115200, SERIAL_8N1, RX_PIN, TX_PIN);
@@ -34,11 +34,11 @@ void initMotor() {
   // Configuramos el "cerebro" del motor
   driver.begin();
   driver.toff(5);
-  driver.rms_current(800);
+  driver.rms_current(1000);
   driver.microsteps(256);
   
-  // Activamos el silencio absoluto
-  driver.en_spreadCycle(false); 
+  // Activamos el silencio absoluto (desactivado)
+  driver.en_spreadCycle(true); 
   driver.pwm_autoscale(true);
   
 }
@@ -54,9 +54,9 @@ void motorMove(char direccion, int steps) {
     for (int i = 0; i < steps; i++) {
 
       digitalWrite(STEP_PIN, HIGH); 
-      delayMicroseconds(1000);
+      delayMicroseconds(2000);
       digitalWrite(STEP_PIN, LOW);
-      delayMicroseconds(1000);
+      delayMicroseconds(2000);
       
       posicionActual++;
 
@@ -68,9 +68,9 @@ void motorMove(char direccion, int steps) {
     for (int i = 0; i < steps; i++) {
 
       digitalWrite(STEP_PIN, HIGH);
-      delayMicroseconds(1000);
-      digitalWrite(STEP_PIN, LOW);
-      delayMicroseconds(1000);
+      delayMicroseconds(2000);
+         digitalWrite(STEP_PIN, LOW);
+      delayMicroseconds(2000);
 
       posicionActual--;
 
