@@ -34,7 +34,7 @@ void initMotor() {
   // Configuramos el "cerebro" del motor
   driver.begin();
   driver.toff(5);
-  driver.rms_current(1000);
+  driver.rms_current(1100);
   driver.microsteps(256);
   
   // Activamos el silencio absoluto (desactivado)
