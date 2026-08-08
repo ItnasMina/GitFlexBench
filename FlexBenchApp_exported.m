@@ -2,11 +2,10 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
 
     % Properties that correspond to app components
     properties (Access = public)
-        UIFigure                        matlab.ui.Figure
+        FlexBenchAppUIFigure            matlab.ui.Figure
         Image                           matlab.ui.control.Image
         FlexBenchLabel                  matlab.ui.control.Label
         ResistancePanel                 matlab.ui.container.Panel
-        ExcelGenerationCheckBox_2       matlab.ui.control.CheckBox
         ResistanceTestButton            matlab.ui.control.StateButton
         ConnectPanel                    matlab.ui.container.Panel
         ConnectLamp                     matlab.ui.control.Lamp
@@ -15,11 +14,6 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
         ConnectButton                   matlab.ui.control.Button
         TestPanel                       matlab.ui.container.Panel
         StartTestButton                 matlab.ui.control.StateButton
-        ExcelGenerationCheckBox         matlab.ui.control.CheckBox
-        NCiclosLabel                    matlab.ui.control.Label
-        CycleNumberEditField            matlab.ui.control.NumericEditField
-        NFilterIntervalEditField        matlab.ui.control.NumericEditField
-        NFilterIntervalLabel            matlab.ui.control.Label
         SetPanel                        matlab.ui.container.Panel
         SetHeightsButton                matlab.ui.control.Button
         PresetedConfigurationsDropDown  matlab.ui.control.DropDown
@@ -48,7 +42,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
     TimerDatos      % El cronómetro para pedir datos
     PauseTime = 3   % Duración de la pausa de estabilización
 
-    % Hueco para cargar nuestra ventana secundaria
+    % Hueco para cargar nuestra ventana secundaria (configuracion)
     DialogoParametros
     
     % Registro de alturas del ciclo
@@ -60,6 +54,9 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
     estadoPrevioMove
     estadoPrevioTest
     estadoPrevioParam
+
+    % Registro del número de ciclos
+    NumCiclos = 20
 
     %Perfiles de ensayo guardados
     TablaPerfiles
@@ -91,7 +88,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                         app.MonitorTextArea.Value = [app.MonitorTextArea.Value; 
                             "> MINIMUM set at: " + string(val)];
                     else
-                        uialert(app.UIFigure, "MIN HEIGHT must be greater or equal than ZERO.", "Calibration error");
+                        uialert(app.FlexBenchAppUIFigure, "MIN HEIGHT must be greater or equal than ZERO.", "Calibration error");
                     end
         
                 % 3. Recepción y Validación de MÁXIMO
@@ -110,7 +107,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                         prompt = {'Name for the new preset:', 'Number of Cycles:'};
                         dlgtitle = 'Save Preset';
                         dims = [1 50];
-                        definput = {'New_Preset', num2str(app.CycleNumberEditField.Value)};
+                        definput = {'New_Preset', num2str(app.NumCiclos)};
                         respuesta = inputdlg(prompt, dlgtitle, dims, definput);
                         
                         if ~isempty(respuesta) % Si el usuario no cancela
@@ -126,7 +123,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                             try
                                 rutaScript = fileparts(mfilename('fullpath'));
                                 if isempty(rutaScript) || contains(rutaScript, 'Temp'), rutaScript = pwd; end
-                                rutaExcel = fullfile(rutaScript, 'perfiles_ensayo.xlsx');
+                                rutaExcel = fullfile(rutaScript, 'Test_profile.xlsx');
                                 writetable(app.TablaPerfiles, rutaExcel);
                                 
                                 % Actualizar DropDown
@@ -136,6 +133,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                                 app.MonitorTextArea.Value = [app.MonitorTextArea.Value; "> Preset saved perfectly."];
                             catch ME
                                 app.MonitorTextArea.Value = [app.MonitorTextArea.Value; "> Error saving Excel: " + ME.message];
+                                uialert(app.FlexBenchAppUIFigure, "Error saving preset to Excel: " + ME.message, "Excel Error", 'Icon', 'error');
                             end
                         end
                         
@@ -155,16 +153,14 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                         app.StartTestButton.Enable = "on"; 
                         app.MonitorTextArea.Value = [app.MonitorTextArea.Value; "> Test Ready"];
                     else
-                        uialert(app.UIFigure, "MAX HEIGHT must be greater than MIN HEIGHT.", "Calibration error");
+                        uialert(app.FlexBenchAppUIFigure, "MAX HEIGHT must be greater than MIN HEIGHT.", "Calibration error");
                     end
 
                 % 4. Resistencia
                 elseif startsWith(mensaje, "RES")
                     % Extraemos el número de forma segura
                     numeros = regexp(mensaje, '-?\d+\.?\d*', 'match'); 
-                    if ~isempty(numeros)
-                        resistencia = str2double(numeros{1});
-                    end
+                    if ~isempty(numeros), resistencia = str2double(numeros{1}); end
                     app.MonitorTextArea.Value = [app.MonitorTextArea.Value; "> RES: " + string(resistencia) + " Ω"];
                 end
                 scroll(app.MonitorTextArea, 'bottom');
@@ -188,25 +184,32 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
             set(app.ResistancePanel.Children, 'Enable', 'off');
             puertos = serialportlist();
             app.PortDropDown.Items = puertos;
+            
             % Carga perfiles de ensayo
             try
                 % 1. Localizar la carpeta exacta de la aplicación
-                rutaScript = fileparts(mfilename('fullpath'));
-                if isempty(rutaScript) || contains(rutaScript, 'Temp')
-                    rutaScript = pwd; 
+                rutaScript = fileparts(which('FlexBenchApp.mlapp'));
+    
+                % Si por algún motivo no lo encuentra (ej. si compilas la app), usa pwd como último recurso
+                if isempty(rutaScript)
+                    rutaScript = pwd;
                 end
+    
+                rutaExcel = fullfile(rutaScript, 'perfiles_ensayo.xlsx');
                 
                 % 2. Buscar el Excel en esa misma carpeta
-                rutaExcel = fullfile(rutaScript, 'perfiles_ensayo.xlsx');
+                rutaExcel = fullfile(rutaScript, 'Test_profile.xlsx');
                 
                 % 3. Leer los datos y rellenar el menú
                 app.TablaPerfiles = readtable(rutaExcel);
                 app.PresetedConfigurationsDropDown.Items = app.TablaPerfiles.Nombre_Perfil;
+                
             catch ME
                 % Si no encuentra el archivo o está mal escrito
                 app.PresetedConfigurationsDropDown.Items = {'Presets no encontrados'};
                 app.PresetedConfigurationsDropDown.Enable = 'off';
                 app.MonitorTextArea.Value = [app.MonitorTextArea.Value; "> Warning: Profile excel couldn't be loaded."];
+                uialert(app.FlexBenchAppUIFigure, "The profile presets file (Test_profile.xlsx) couldn't be loaded. Presets are disabled.", "File Error", 'Icon', 'warning');
             end
             
             % Precargar la ventana secundaria oculta
@@ -235,6 +238,8 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                 app.ConnectLamp.Color = 'green';
                 app.ConnectButton.Text = 'Connected';
                 app.ConnectButton.Enable = 'off'; % Desactivamos el botón para no conectar 2 veces
+                app.PortDropDown.Enable = "off";
+                app.BaudRateDropDown.Enable = "off";
 
                 % ESTADO 1: Liberamos control manual, Resistencia y Set 0
                 set(app.MovePanel.Children, 'Enable', 'on');
@@ -255,7 +260,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                 
             catch ME
                 % Si algo falla, sacamos una alerta
-                uialert(app.UIFigure, "Connection error: " + ME.message, "Connection Error");
+                uialert(app.FlexBenchAppUIFigure, "Connection error: " + ME.message, "Connection Error");
                 app.ConnectLamp.Color = 'red';
                 app.ConnectButton.Text = 'Error in connection';
             end
@@ -268,7 +273,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
             
             % 2. Se verifica que el puerto este conectado
             if isempty(app.ESP32) || ~isvalid(app.ESP32)
-                uialert(app.UIFigure, "Connect the port first.", "Error");
+                uialert(app.FlexBenchAppUIFigure, "Connect the port first.", "Error");
                 return;
             end
             
@@ -354,6 +359,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
 
         % Value changed function: StartTestButton
         function StartTestButtonValueChanged(app, event)
+            
             % ==========================================
             % 0. LÓGICA DEL STATE BUTTON (START / STOP)
             % ==========================================
@@ -374,7 +380,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
             % 1. COMPROBACIONES INICIALES
             % =============================
             function abortarInicio(mensaje, titulo)
-                uialert(app.UIFigure, mensaje, titulo);
+                uialert(app.FlexBenchAppUIFigure, mensaje, titulo);
                 app.StartTestButton.Value = false;
                 app.StartTestButton.Text = 'Start Test'; 
                 app.StartTestButton.BackgroundColor = [0.96 0.96 0.96];
@@ -385,11 +391,6 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                 abortarInicio("Please, connect first the port", "Connection error"); return;
             end
             
-            nCiclos = app.CycleNumberEditField.Value;
-            if nCiclos <= 0 
-                abortarInicio("The number of cycles must be greater than 0.", "Error"); return;
-            end
-            
             if app.AlturaMax <= app.AlturaMin
                 abortarInicio("Please calibrate the Minimum and Maximum heights or load a preset first.", "Calibration Missing"); 
                 return;
@@ -398,12 +399,20 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
             % ==========================================
             % 2. ABRIR TU NUEVA VENTANA Y RECIBIR DATOS
             % ==========================================
+            
+            % ESCUDO 1: Si la ventana fue destruida (por la X roja) o no existe, la recreamos
+            if isempty(app.DialogoParametros) || ~isvalid(app.DialogoParametros)
+                app.DialogoParametros = SpecimenParamsDialog();
+            end
+
+            app.DialogoParametros.TabGroup.SelectedTab = app.DialogoParametros.TestTab;
+            app.DialogoParametros.RepetitionsEditField.Value = app.NumCiclos;
             app.DialogoParametros.IsCanceled = true; 
             app.DialogoParametros.UIFigure.Visible = 'on';
             uiwait(app.DialogoParametros.UIFigure);
             
-            % Si el usuario pulsa cancelar o la X, abortamos.
-            if app.DialogoParametros.IsCanceled
+            % ESCUDO 2: Comprobamos que el objeto siga siendo válido ANTES de leer IsCanceled
+            if ~isvalid(app.DialogoParametros) || app.DialogoParametros.IsCanceled
                 abortarInicio("Test cancelled: Specimen parameters are required.", "Cancelled"); 
                 return;
             end
@@ -415,7 +424,11 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
             width_cm     = app.DialogoParametros.Width_cm;
             thickness_cm = app.DialogoParametros.Thickness_cm;
             infill_porc  = app.DialogoParametros.Infill;
-            
+            genExcel = app.DialogoParametros.GenerateExcel;
+            nCiclos = app.DialogoParametros.Cycles;
+            nFilter = app.DialogoParametros.FilterInterval;
+            app.NumCiclos = nCiclos;
+
             % Variables para mantener compatibilidad con tu código del Excel que viene abajo
             strLength = num2str(L0_cm);
             strWidth = num2str(width_cm);
@@ -439,6 +452,10 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
             end
             if isnan(totalTests) || totalTests < 1 || floor(totalTests) ~= totalTests
                 abortarInicio("Please, enter a valid integer for Number of Consecutive Tests >= 1.", "Error");
+                return;
+            end
+            if nCiclos <= 0 
+                abortarInicio("The number of cycles must be greater than 0.", "Error");
                 return;
             end
             
@@ -466,10 +483,14 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                         "> Preparing: Going to max height..."];
                     scroll(app.MonitorTextArea, 'bottom'); drawnow;
                     
-                    writeline(app.ESP32, "P"); posActual = NaN;
+                    writeline(app.ESP32, "P");
+                    posActual = NaN;
                     while true
                         resp = readline(app.ESP32);
-                        if startsWith(resp, "POS"), num = regexp(resp, '-?\d+\.?\d*', 'match'); posActual = str2double(num{1}); break; end
+                        if startsWith(resp, "POS"), num = regexp(resp, '-?\d+\.?\d*', 'match');
+                            posActual = str2double(num{1});
+                            break;
+                        end
                     end
                     
                     posicionPlana = (app.AlturaMax + app.AlturaMin) / 2;
@@ -481,20 +502,24 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                         
                     if distancia ~= 0
                         while ~startsWith(readline(app.ESP32), "MOVEMENT EXECUTED")
-                            drawnow; if app.StartTestButton.Value == false, break; end 
+                            drawnow;
+                            if app.StartTestButton.Value == false, break; end 
                         end
                     end
                     
                     if app.StartTestButton.Value == false, break; end 
     
                     % 4. BUCLE DE ENSAYO
-                    pasosMuestreo = 1; datosEnsayo = []; t_inicio = tic; posTemp = NaN; 
+                    pasosMuestreo = 1; datosEnsayo = [];
+                    t_inicio = tic;
+                    posTemp = NaN; 
                     
                     for i = 1:nCiclos
                         if app.StartTestButton.Value == false, break; end 
                         
                         app.MonitorTextArea.Value = [app.MonitorTextArea.Value; sprintf("> TEST %d: Cycle %d/%d (0.0%%)", nTestActual, i, nCiclos)];
-                        scroll(app.MonitorTextArea, 'bottom'); drawnow;
+                        scroll(app.MonitorTextArea, 'bottom');
+                        drawnow;
     
                         pasosTotalesCiclo = amplitudMedia * 4; pasosDados = 0;
                         
@@ -506,29 +531,56 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                             writeline(app.ESP32, "U" + string(pasos));
                             while ~startsWith(readline(app.ESP32), "MOVEMENT EXECUTED"); drawnow; end
                             
-                            writeline(app.ESP32, "P"); posTemp = NaN;
-                            while true, resp = readline(app.ESP32); if startsWith(resp, "POS:"), num = regexp(resp, '-?\d+\.?\d*', 'match'); posTemp = str2double(num{1}); break; end; end
-                            writeline(app.ESP32, "R"); resTemp = NaN;
-                            while true, resp = readline(app.ESP32); if startsWith(resp, "RES:"), num = regexp(resp, '-?\d+\.?\d*', 'match'); resTemp = str2double(num{1}); break; end; end
+                            writeline(app.ESP32, "P");
+                            posTemp = NaN;
+                            while true, resp = readline(app.ESP32);
+                                if startsWith(resp, "POS:")
+                                    num = regexp(resp, '-?\d+\.?\d*', 'match');
+                                    posTemp = str2double(num{1});
+                                    break;
+                                end
+                            end
+                            writeline(app.ESP32, "R");
+                            resTemp = NaN;
+                            while true, resp = readline(app.ESP32);
+                                if startsWith(resp, "RES:")
+                                    num = regexp(resp, '-?\d+\.?\d*', 'match');
+                                    resTemp = str2double(num{1});
+                                    break;
+                                end
+                            end
     
                             datosEnsayo = [datosEnsayo; i, posTemp, resTemp, toc(t_inicio)];
                             pasosRestantes = pasosRestantes - pasos; pasosDados = pasosDados + pasos;
                             progreso = (pasosDados / pasosTotalesCiclo) * 100;
-                            lineas = string(app.MonitorTextArea.Value); lineas(end) = sprintf("> TEST %d: Cycle %d/%d (%.1f%%)", nTestActual, i, nCiclos, progreso); app.MonitorTextArea.Value = cellstr(lineas); drawnow; 
+                            lineas = string(app.MonitorTextArea.Value);
+                            lineas(end) = sprintf("> TEST %d: Cycle %d/%d (%.1f%%)", nTestActual, i, nCiclos, progreso);
+                            app.MonitorTextArea.Value = cellstr(lineas);
+                            drawnow; 
                         end
                         if app.StartTestButton.Value == false, break; end 
                         
                         % .2b Pausa en Máximo (CUENTA ATRÁS ENTERA)
-                        lineas = string(app.MonitorTextArea.Value); lineas(end) = sprintf("> TEST %d: Cycle %d/%d (25.0%%)", nTestActual, i, nCiclos);
+                        lineas = string(app.MonitorTextArea.Value);
+                        lineas(end) = sprintf("> TEST %d: Cycle %d/%d (25.0%%)", nTestActual, i, nCiclos);
                         lineas = [lineas; sprintf("  -> Stabilizing at Maximum (%ds)...", app.PauseTime)]; 
-                        app.MonitorTextArea.Value = cellstr(lineas); scroll(app.MonitorTextArea, 'bottom'); drawnow;
+                        app.MonitorTextArea.Value = cellstr(lineas);
+                        scroll(app.MonitorTextArea, 'bottom');
+                        drawnow;
                         
                         t_pausa = tic;
                         segundoActual = app.PauseTime;
                         while toc(t_pausa) < app.PauseTime
                             if app.StartTestButton.Value == false, break; end 
-                            writeline(app.ESP32, "R"); resTemp = NaN;
-                            while true, resp = readline(app.ESP32); if startsWith(resp, "RES:"), num = regexp(resp, '-?\d+\.?\d*', 'match'); resTemp = str2double(num{1}); break; end; end
+                            writeline(app.ESP32, "R");
+                            resTemp = NaN;
+                            while true, resp = readline(app.ESP32);
+                                if startsWith(resp, "RES:")
+                                    num = regexp(resp, '-?\d+\.?\d*', 'match');
+                                    resTemp = str2double(num{1});
+                                    break;
+                                end
+                            end
                             datosEnsayo = [datosEnsayo; i, posTemp, resTemp, toc(t_inicio)]; 
                             
                             segundoRestante = ceil(app.PauseTime - toc(t_pausa));
@@ -540,7 +592,10 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                             end
                         end
                         if app.StartTestButton.Value == false, break; end 
-                        lineas = string(app.MonitorTextArea.Value); lineas(end) = []; app.MonitorTextArea.Value = cellstr(lineas); drawnow;
+                        lineas = string(app.MonitorTextArea.Value);
+                        lineas(end) = [];
+                        app.MonitorTextArea.Value = cellstr(lineas);
+                        drawnow;
                         
                         % .2c BAJADA 
                         pasosRestantes = amplitudMedia*2;
@@ -550,41 +605,73 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                             writeline(app.ESP32, "D" + string(pasos));
                             while ~startsWith(readline(app.ESP32), "MOVEMENT EXECUTED"); drawnow; end
                             
-                            writeline(app.ESP32, "P"); posTemp = NaN;
-                            while true, resp = readline(app.ESP32); if startsWith(resp, "POS:"), num = regexp(resp, '-?\d+\.?\d*', 'match'); posTemp = str2double(num{1}); break; end; end
-                            writeline(app.ESP32, "R"); resTemp = NaN;
-                            while true, resp = readline(app.ESP32); if startsWith(resp, "RES:"), num = regexp(resp, '-?\d+\.?\d*', 'match'); resTemp = str2double(num{1}); break; end; end
+                            writeline(app.ESP32, "P");
+                            posTemp = NaN;
+                            while true, resp = readline(app.ESP32);
+                                if startsWith(resp, "POS:")
+                                    num = regexp(resp, '-?\d+\.?\d*', 'match');
+                                    posTemp = str2double(num{1});
+                                    break;
+                                end
+                            end
+                            writeline(app.ESP32, "R");
+                            resTemp = NaN;
+                            while true
+                                resp = readline(app.ESP32);
+                                if startsWith(resp, "RES:")
+                                    num = regexp(resp, '-?\d+\.?\d*', 'match');
+                                    resTemp = str2double(num{1});
+                                    break;
+                                end
+                            end
                             
                             datosEnsayo = [datosEnsayo; i, posTemp, resTemp, toc(t_inicio)];
-                            pasosRestantes = pasosRestantes - pasos; pasosDados = pasosDados + pasos;
+                            pasosRestantes = pasosRestantes - pasos;
+                            pasosDados = pasosDados + pasos;
                             progreso = (pasosDados / pasosTotalesCiclo) * 100;
-                            lineas = string(app.MonitorTextArea.Value); lineas(end) = sprintf("> TEST %d: Cycle %d/%d (%.1f%%)", nTestActual, i, nCiclos, progreso); app.MonitorTextArea.Value = cellstr(lineas); drawnow; 
+                            lineas = string(app.MonitorTextArea.Value);
+                            lineas(end) = sprintf("> TEST %d: Cycle %d/%d (%.1f%%)", nTestActual, i, nCiclos, progreso);
+                            app.MonitorTextArea.Value = cellstr(lineas);
+                            drawnow; 
                         end
                         if app.StartTestButton.Value == false, break; end 
     
                         % .2d Pausa en Mínimo (CUENTA ATRÁS ENTERA)
                         lineas = string(app.MonitorTextArea.Value); 
                         lineas = [lineas; sprintf("  -> Stabilizing at Minimum (%ds)...", app.PauseTime)]; 
-                        app.MonitorTextArea.Value = cellstr(lineas); scroll(app.MonitorTextArea, 'bottom'); drawnow;
+                        app.MonitorTextArea.Value = cellstr(lineas);
+                        scroll(app.MonitorTextArea, 'bottom');
+                        drawnow;
                         
                         t_pausa = tic;
                         segundoActual = app.PauseTime;
                         while toc(t_pausa) < app.PauseTime
                             if app.StartTestButton.Value == false, break; end 
-                            writeline(app.ESP32, "R"); resTemp = NaN;
-                            while true, resp = readline(app.ESP32); if startsWith(resp, "RES:"), num = regexp(resp, '-?\d+\.?\d*', 'match'); resTemp = str2double(num{1}); break; end; end
+                            writeline(app.ESP32, "R");
+                            resTemp = NaN;
+                            while true, resp = readline(app.ESP32);
+                                if startsWith(resp, "RES:")
+                                    num = regexp(resp, '-?\d+\.?\d*', 'match');
+                                    resTemp = str2double(num{1});
+                                    break;
+                                end
+                            end
                             datosEnsayo = [datosEnsayo; i, posTemp, resTemp, toc(t_inicio)]; 
                             
                             segundoRestante = ceil(app.PauseTime - toc(t_pausa));
                             if segundoRestante < segundoActual && segundoRestante > 0
                                 lineasUI = string(app.MonitorTextArea.Value);
                                 lineasUI(end) = sprintf("  -> Stabilizing at Minimum (%ds)...", segundoRestante);
-                                app.MonitorTextArea.Value = cellstr(lineasUI); drawnow;
+                                app.MonitorTextArea.Value = cellstr(lineasUI);
+                                drawnow;
                                 segundoActual = segundoRestante;
                             end
                         end
                         if app.StartTestButton.Value == false, break; end 
-                        lineas = string(app.MonitorTextArea.Value); lineas(end) = []; app.MonitorTextArea.Value = cellstr(lineas); drawnow;
+                        lineas = string(app.MonitorTextArea.Value);
+                        lineas(end) = [];
+                        app.MonitorTextArea.Value = cellstr(lineas);
+                        drawnow;
     
                         % .2e SUBIDA 
                         pasosRestantes = amplitudMedia; 
@@ -595,28 +682,56 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                             while ~startsWith(readline(app.ESP32), "MOVEMENT EXECUTED"); drawnow; end
     
                             writeline(app.ESP32, "P"); posTemp = NaN;
-                            while true, resp = readline(app.ESP32); if startsWith(resp, "POS:"), num = regexp(resp, '-?\d+\.?\d*', 'match'); posTemp = str2double(num{1}); break; end; end
+                            while true
+                                resp = readline(app.ESP32);
+                                if startsWith(resp, "POS:")
+                                    num = regexp(resp, '-?\d+\.?\d*', 'match');
+                                    posTemp = str2double(num{1});
+                                    break;
+                                end
+                            end
                             writeline(app.ESP32, "R"); resTemp = NaN;
-                            while true, resp = readline(app.ESP32); if startsWith(resp, "RES:"), num = regexp(resp, '-?\d+\.?\d*', 'match'); resTemp = str2double(num{1}); break; end; end
+                            while true
+                                resp = readline(app.ESP32);
+                                if startsWith(resp, "RES:"),
+                                    num = regexp(resp, '-?\d+\.?\d*', 'match');
+                                    resTemp = str2double(num{1});
+                                    break; 
+                                end
+                            end
     
                             datosEnsayo = [datosEnsayo; i, posTemp, resTemp, toc(t_inicio)];
-                            pasosRestantes = pasosRestantes - pasos; pasosDados = pasosDados + pasos;
+                            pasosRestantes = pasosRestantes - pasos;
+                            pasosDados = pasosDados + pasos;
                             progreso = (pasosDados / pasosTotalesCiclo) * 100;
-                            lineas = string(app.MonitorTextArea.Value); lineas(end) = sprintf("> TEST %d: Cycle %d/%d (%.1f%%)", nTestActual, i, nCiclos, progreso); app.MonitorTextArea.Value = cellstr(lineas); drawnow;
+                            lineas = string(app.MonitorTextArea.Value);
+                            lineas(end) = sprintf("> TEST %d: Cycle %d/%d (%.1f%%)", nTestActual, i, nCiclos, progreso);
+                            app.MonitorTextArea.Value = cellstr(lineas);
+                            drawnow;
                         end
                         if app.StartTestButton.Value == false, break; end 
     
                         % .2f Pausa en Medio (CUENTA ATRÁS ENTERA)
                         lineas = string(app.MonitorTextArea.Value); 
                         lineas = [lineas; sprintf("  -> Stabilizing at Flat Position (%ds)...", app.PauseTime)]; 
-                        app.MonitorTextArea.Value = cellstr(lineas); scroll(app.MonitorTextArea, 'bottom'); drawnow;
+                        app.MonitorTextArea.Value = cellstr(lineas);
+                        scroll(app.MonitorTextArea, 'bottom');
+                        drawnow;
                         
                         t_pausa = tic;
                         segundoActual = app.PauseTime;
                         while toc(t_pausa) < app.PauseTime
                             if app.StartTestButton.Value == false, break; end 
-                            writeline(app.ESP32, "R"); resTemp = NaN;
-                            while true, resp = readline(app.ESP32); if startsWith(resp, "RES:"), num = regexp(resp, '-?\d+\.?\d*', 'match'); resTemp = str2double(num{1}); break; end; end
+                            writeline(app.ESP32, "R");
+                            resTemp = NaN;
+                            while true
+                                resp = readline(app.ESP32);
+                                if startsWith(resp, "RES:")
+                                    num = regexp(resp, '-?\d+\.?\d*', 'match'); 
+                                    resTemp = str2double(num{1});
+                                    break;
+                                end
+                            end
                             datosEnsayo = [datosEnsayo; i, posTemp, resTemp, toc(t_inicio)]; 
                             
                             segundoRestante = ceil(app.PauseTime - toc(t_pausa));
@@ -641,34 +756,43 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                     else
                         app.MonitorTextArea.Value = [app.MonitorTextArea.Value; sprintf("> TEST %d COMPLETED. Generating Excel...", nTestActual)];
                     end
-                    scroll(app.MonitorTextArea, 'bottom'); drawnow; 
+                    scroll(app.MonitorTextArea, 'bottom');
+                    drawnow; 
                     
                     if isempty(datosEnsayo)
                         app.MonitorTextArea.Value = [app.MonitorTextArea.Value; "> No data collected. Excel skipped."];
                     else
-                        resistenciaMedia = movmean(datosEnsayo(:, 3), app.NFilterIntervalEditField.Value);
+                        resistenciaMedia = movmean(datosEnsayo(:, 3), nFilter);
                         datosCompletos = [datosEnsayo, resistenciaMedia]; 
                         
-                        modulo = 1; dientes = 60; diametroPrimitivo = modulo * dientes; avancePorVuelta = pi * diametroPrimitivo; 
-                        pasosPorVueltaMotor = 200; microstepping = 256; avancePorPaso = avancePorVuelta / (pasosPorVueltaMotor * microstepping); 
+                        modulo = 1;
+                        dientes = 60;
+                        diametroPrimitivo = modulo * dientes;
+                        avancePorVuelta = pi * diametroPrimitivo; 
+                        pasosPorVueltaMotor = 200;
+                        microstepping = 256;
+                        avancePorPaso = avancePorVuelta / (pasosPorVueltaMotor * microstepping); 
                         
                         thickness_mm = thickness_cm * 10;
                         L0_mm = L0_cm * 10;
                         
-                        columnaDeformacion = zeros(size(datosCompletos, 1), 1); columnaGF = zeros(size(datosCompletos, 1), 1);
+                        columnaDeformacion = zeros(size(datosCompletos, 1), 1);
+                        columnaGF = zeros(size(datosCompletos, 1), 1);
                         
                         ciclosEjecutados = max(datosCompletos(:, 1)); 
                         
                         for j = 1:ciclosEjecutados
                             idxCiclo = find(datosCompletos(:, 1) == j);
                             if ~isempty(idxCiclo)
-                                R0 = datosCompletos(idxCiclo(1), 5); Pos0 = datosCompletos(idxCiclo(1), 2); 
+                                R0 = datosCompletos(idxCiclo(1), 5);
+                                Pos0 = datosCompletos(idxCiclo(1), 2); 
                                 for k = 1:length(idxCiclo)
                                     fila = idxCiclo(k);
                                     deflexion_mm = abs(datosCompletos(fila, 2) - Pos0) * avancePorPaso; 
                                     epsilon = (6 * deflexion_mm * thickness_mm) / (L0_mm^2);
                                     columnaDeformacion(fila) = epsilon;
-                                    deltaR = datosCompletos(fila, 5) - R0; variacionRelativaR = deltaR / R0;
+                                    deltaR = datosCompletos(fila, 5) - R0;
+                                    variacionRelativaR = deltaR / R0;
                                     if abs(epsilon) < 1e-4, columnaGF(fila) = NaN; else, columnaGF(fila) = variacionRelativaR / epsilon; end
                                 end
                             end
@@ -676,13 +800,13 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                         
                         datosCompletos = [datosCompletos, columnaDeformacion, columnaGF];
                         tablaDatos = array2table(datosCompletos, 'VariableNames', {'Cycle', 'Position', 'Resistance', 'Time', 'Average_Resistance', 'Strain', 'Gauge_Factor'});
-                        
-                        specimenNameActual = sprintf("%s (Test %d of %d)", specimenName, nTestActual, totalTests);
-                        Attributes = {'Length'; 'Width (cm)'; 'Thickness (mm)'; 'Specimen Name'}; 
-                        Values = {strLength + " cm"; strWidth; string(thickness_mm); specimenNameActual};
+                         
+                        infoTest = sprintf("(Test %d of %d)", nTestActual, totalTests);
+                        Attributes = {'Specimen Name'; 'Infill'; 'Length'; 'Thickness (mm)'; 'Width (cm)'; 'Test Number'};
+                        Values = {strLength + " cm"; strWidth; string(thickness_mm); specimenNameActual; string(infill_porc)};
                         tablaInfo = table(Attributes, Values, 'VariableNames', {'Attribute', 'Value'});
                         
-                        if app.ExcelGenerationCheckBox.Value == true
+                        if genExcel == true
                             rutaBase = pwd; 
                             rutaDestino = fullfile(rutaBase, 'Datos');
                             
@@ -697,22 +821,43 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                             writetable(tablaInfo, nombreArchivo, 'Sheet', 'Specimen_Info');
                             
                             try
-                                Excel = actxserver('Excel.Application'); Workbook = Excel.Workbooks.Open(nombreArchivo);
-                                Sheet = Workbook.Sheets.Item('Test_Data'); numFilas = size(datosCompletos, 1) + 1; 
+                                Excel = actxserver('Excel.Application');
+                                Workbook = Excel.Workbooks.Open(nombreArchivo);
+                                                 
+                                % Autoajustar la hoja de datos
+                                Sheet = Workbook.Sheets.Item('Test_Data'); 
+                                Sheet.Columns.AutoFit();
+                                SheetInfo = Workbook.Sheets.Item('Specimen_Info');
+                                SheetInfo.Columns.AutoFit();
+
+                                numFilas = size(datosCompletos, 1) + 1; 
                                 
-                                maxTiempo = max(datosCompletos(:, 4)); escalaMaxTiempo = maxTiempo * 1.05;
-                                minRes = min(datosCompletos(:, 5)); maxRes = max(datosCompletos(:, 5));
-                                margenRes = (maxRes - minRes) * 0.1; if margenRes == 0, margenRes = 50; end
-                                escalaMinRes = floor((minRes - margenRes) / 10) * 10; escalaMaxRes = ceil((maxRes + margenRes) / 10) * 10;
+                                maxTiempo = max(datosCompletos(:, 4));
+                                escalaMaxTiempo = maxTiempo * 1.05;
+                                minRes = min(datosCompletos(:, 5));
+                                maxRes = max(datosCompletos(:, 5));
+                                margenRes = (maxRes - minRes) * 0.1;
+                                if margenRes == 0, margenRes = 50; end
+                                escalaMinRes = floor((minRes - margenRes) / 10) * 10;
+                                escalaMaxRes = ceil((maxRes + margenRes) / 10) * 10;
                                 
                                 % Gráfico 1
                                 Grafico1 = Excel.Charts.Add; Grafico1.ChartType = 'xlXYScatter'; 
                                 while Grafico1.SeriesCollection.Count > 0, Grafico1.SeriesCollection.Item(1).Delete; end
-                                Serie1 = Grafico1.SeriesCollection.NewSeries; Serie1.XValues = Sheet.Range(sprintf('D2:D%d', numFilas));
-                                Serie1.Values = Sheet.Range(sprintf('E2:E%d', numFilas)); Serie1.MarkerStyle = 8; Serie1.MarkerSize = 2;  
-                                Grafico1.HasTitle = true; Grafico1.ChartTitle.Text = 'Resistance vs Time (Filtered)'; Grafico1.HasLegend = false; 
-                                Grafico1.Axes(1).HasTitle = true; Grafico1.Axes(1).AxisTitle.Text = 'Time (s)'; Grafico1.Axes(1).MinimumScale = 0; Grafico1.Axes(1).MaximumScale = escalaMaxTiempo;
-                                Grafico1.Axes(2).HasTitle = true; Grafico1.Axes(2).AxisTitle.Text = 'Average Resistance (Ohms)'; Grafico1.Axes(2).MinimumScale = escalaMinRes; Grafico1.Axes(2).MaximumScale = escalaMaxRes;
+                                
+                                %Serie 1
+                                Serie1 = Grafico1.SeriesCollection.NewSeries;
+                                Serie1.XValues = Sheet.Range(sprintf('D2:D%d', numFilas));
+                                Serie1.Values = Sheet.Range(sprintf('E2:E%d', numFilas));
+                                Serie1.MarkerStyle = 8;
+                                Serie1.MarkerSize = 2;
+                                %Gráfico
+                                Grafico1.HasTitle = true; Grafico1.ChartTitle.Text = 'Resistance vs Time (Filtered)';
+                                Grafico1.HasLegend = false; 
+                                Grafico1.Axes(1).HasTitle = true; Grafico1.Axes(1).AxisTitle.Text = 'Time (s)';
+                                Grafico1.Axes(1).MinimumScale = 0; Grafico1.Axes(1).MaximumScale = escalaMaxTiempo;
+                                Grafico1.Axes(2).HasTitle = true; Grafico1.Axes(2).AxisTitle.Text = 'Average Resistance (Ohms)';
+                                Grafico1.Axes(2).MinimumScale = escalaMinRes; Grafico1.Axes(2).MaximumScale = escalaMaxRes;
                                 Grafico1.Location(2, Sheet.Name); Shape1 = Sheet.Shapes.Item(Sheet.Shapes.Count);
                                 Shape1.Width = 600; Shape1.Height = 350; Shape1.Top = 20; Shape1.Left = 550; 
                                 
@@ -754,6 +899,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                             catch ME
                                 if exist('Excel', 'var') && isvalid(Excel), Excel.Quit; delete(Excel); end
                                 app.MonitorTextArea.Value = [app.MonitorTextArea.Value; "> Warning: Native charting failed. " + ME.message];
+                                uialert(app.FlexBenchAppUIFigure, "Excel charting or saving failed: " + ME.message, "Excel Warning", 'Icon', 'warning');
                             end
                         else
                             app.MonitorTextArea.Value = [app.MonitorTextArea.Value; "> Test completed. (Excel saving disabled)"];
@@ -797,6 +943,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
             catch ME
                 app.MonitorTextArea.Value = [app.MonitorTextArea.Value; "> CRITICAL ERROR: " + ME.message];
                 scroll(app.MonitorTextArea, 'bottom');
+                uialert(app.FlexBenchAppUIFigure, "A critical error stopped the test: " + ME.message, "Critical Error", 'Icon', 'error');
             end
             
             % --- RESTAURAR LA NORMALIDAD ---
@@ -815,10 +962,11 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
 
         % Value changed function: ResistanceTestButton
         function ResistanceTestButtonValueChanged(app, event)
-           % 0. Verificar conexión
+            
+            % 0. Verificar conexión
             if isempty(app.ESP32) || ~isvalid(app.ESP32)
                 app.ResistanceTestButton.Value = false;
-                uialert(app.UIFigure, "Connect first the port.", "Warning");
+                uialert(app.FlexBenchAppUIFigure, "Connect first the port.", "Warning");
                 return;
             end
             
@@ -833,18 +981,20 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                 drawnow;
                 return;
             end
-
+        
             % ==========================================
             % LÓGICA DE INICIO (START) Y DIÁLOGO
             % ==========================================
-            % Ventana emergente (Sin número de tests, ya que es estático)
-            prompt = {'Specimen Name (Code):', 'Length (cm):', 'Width (cm):', 'Thickness (cm):'};
-            dlgtitle = 'Specimen Parameters (Static)';
-            dims = [1 55];
-            definput = {'PROB-001', '10', '1', '0.2'};
-            respuesta = inputdlg(prompt, dlgtitle, dims, definput);
             
-            if isempty(respuesta)
+            % Mostrar la ventana pre-cargada y esperar a la acción del usuario
+            app.DialogoParametros.IsCanceled = true; 
+            app.DialogoParametros.UIFigure.Visible = 'on';
+            app.DialogoParametros.TabGroup.SelectedTab = app.DialogoParametros.ResistanceTab;
+        
+            uiwait(app.DialogoParametros.UIFigure);
+            
+            % Si el usuario cancela o cierra la ventana con la cruz
+            if app.DialogoParametros.IsCanceled
                 app.ResistanceTestButton.Value = false;
                 app.ResistanceTestButton.Text = 'Resistance Test';
                 app.ResistanceTestButton.BackgroundColor = [0.96 0.96 0.96];
@@ -853,12 +1003,20 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                 return;
             end
             
-            % Extraemos datos
-            specimenName = string(respuesta{1});
-            strLength = respuesta{2}; L0_cm = str2double(strLength);
-            strWidth  = respuesta{3}; width_cm = str2double(strWidth);
-            strThick  = respuesta{4}; thickness_cm = str2double(strThick);
-
+            % Extraemos los datos de la app secundaria
+            specimenName = app.DialogoParametros.SpecimenName;
+            L0_cm        = app.DialogoParametros.Length_cm;
+            width_cm     = app.DialogoParametros.Width_cm;
+            thickness_cm = app.DialogoParametros.Thickness_cm;
+            infill_porc  = app.DialogoParametros.Infill;
+            genExcel     = app.DialogoParametros.GenerateExcel;
+            intervalo    = app.DialogoParametros.FilterInterval;
+        
+            % Convertir las dimensiones a string para mantener la compatibilidad con el código del Excel
+            strLength = num2str(L0_cm);
+            strWidth  = num2str(width_cm);
+        
+            % Cambios visuales en el botón para indicar que está en ejecución
             app.ResistanceTestButton.Text = 'STOP';
             app.ResistanceTestButton.BackgroundColor = [1 0.4 0.4]; 
             
@@ -921,7 +1079,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                 app.MonitorTextArea.Value = [app.MonitorTextArea.Value; "> Resistance test completed."];
                 scroll(app.MonitorTextArea, 'bottom'); drawnow;
                 
-                if app.ExcelGenerationCheckBox_2.Value == true
+                if genExcel == true
                     if isempty(datosResistencia)
                         app.MonitorTextArea.Value = [app.MonitorTextArea.Value; "> No data collected. Excel skipped."];
                     else
@@ -929,7 +1087,6 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                         drawnow;
                         
                         % Filtrado
-                        intervalo = app.NFilterIntervalEditField.Value;
                         resistenciaMedia = movmean(datosResistencia(:, 2), intervalo);
                         datosCompletos = [datosResistencia, resistenciaMedia];
                         
@@ -937,11 +1094,11 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                         tablaDatos = array2table(datosCompletos, 'VariableNames', {'Time_s', 'Resistance_Ohms', 'Filtered_Resistance_Ohms'});
                         
                         % Tabla de Info Probeta
-                        thickness_mm = thickness_cm * 10;
-                        Attributes = {'Length'; 'Width (cm)'; 'Thickness (mm)'; 'Specimen Name'}; 
-                        Values = {strLength + " cm"; strWidth; string(thickness_mm); specimenName};
+                       thickness_mm = thickness_cm * 10;
+                        Attributes = {'Specimen Name'; 'Infill'; 'Length'; 'Thickness (mm)'; 'Width (cm)'}; 
+                        Values = {specimenName; string(infill_porc); strLength + " cm"; string(thickness_mm); strWidth};
                         tablaInfo = table(Attributes, Values, 'VariableNames', {'Attribute', 'Value'});
-                        
+                                                
                         % Rutas relativas y carpeta Resistance
                         rutaBase = pwd;
                         rutaDestino = fullfile(rutaBase, 'Datos', 'Resistance');
@@ -961,7 +1118,15 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                         try
                             Excel = actxserver('Excel.Application'); 
                             Workbook = Excel.Workbooks.Open(nombreArchivo);
+
+                            
+                            % Autoajustar la hoja de datos
                             Sheet = Workbook.Sheets.Item('Resistance_Data'); 
+                            Sheet.Columns.AutoFit();
+                            SheetInfo = Workbook.Sheets.Item('Specimen_Info');
+                            SheetInfo.Columns.AutoFit();
+
+
                             numFilas = size(datosCompletos, 1) + 1; 
                             maxTiempo = max(datosCompletos(:, 1));
                             
@@ -999,6 +1164,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                         catch ME
                             if exist('Excel', 'var') && isvalid(Excel), Excel.Quit; delete(Excel); end
                             app.MonitorTextArea.Value = [app.MonitorTextArea.Value; "> Warning: Native charting failed. " + ME.message];
+                            uialert(app.FlexBenchAppUIFigure, "Excel charting or saving failed: " + ME.message, "Excel Warning", 'Icon', 'warning');
                         end
                     end
                 else
@@ -1007,6 +1173,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                 
             catch ME
                 app.MonitorTextArea.Value = [app.MonitorTextArea.Value; "> CRITICAL ERROR: " + ME.message];
+                uialert(app.FlexBenchAppUIFigure, "A critical error stopped the resistance test: " + ME.message, "Critical Error", 'Icon', 'error');
             end
             
             % 5. RESTAURAMOS LA NORMALIDAD
@@ -1037,7 +1204,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
             ciclos    = app.TablaPerfiles.Ciclos(idx);
             
             % Actualizamos la interfaz
-            app.CycleNumberEditField.Value = ciclos;
+            app.NumCiclos = ciclos;
             set(app.TestPanel.Children, 'Enable', 'on');    % Habilitamos el panel para poder arrancar
             
             % Mensaje de consola
@@ -1047,8 +1214,8 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
             scroll(app.MonitorTextArea, 'bottom');
         end
 
-        % Button down function: UIFigure
-        function UIFigureButtonDown(app, event)
+        % Button down function: FlexBenchAppUIFigure
+        function FlexBenchAppUIFigureButtonDown(app, event)
             if isvalid(app.DialogoParametros)
                 delete(app.DialogoParametros); 
             end
@@ -1062,15 +1229,19 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
         % Create UIFigure and components
         function createComponents(app)
 
-            % Create UIFigure and hide until all components are created
-            app.UIFigure = uifigure('Visible', 'off');
-            app.UIFigure.Position = [0 0 1540 845];
-            app.UIFigure.Name = 'MATLAB App';
-            app.UIFigure.ButtonDownFcn = createCallbackFcn(app, @UIFigureButtonDown, true);
-            app.UIFigure.WindowState = 'maximized';
+            % Get the file path for locating images
+            pathToMLAPP = fileparts(mfilename('fullpath'));
+
+            % Create FlexBenchAppUIFigure and hide until all components are created
+            app.FlexBenchAppUIFigure = uifigure('Visible', 'off');
+            app.FlexBenchAppUIFigure.Color = [0.9608 0.9608 0.9608];
+            app.FlexBenchAppUIFigure.Position = [0 0 1540 845];
+            app.FlexBenchAppUIFigure.Name = 'FlexBench App';
+            app.FlexBenchAppUIFigure.ButtonDownFcn = createCallbackFcn(app, @FlexBenchAppUIFigureButtonDown, true);
+            app.FlexBenchAppUIFigure.WindowState = 'maximized';
 
             % Create MonitorTextArea
-            app.MonitorTextArea = uitextarea(app.UIFigure);
+            app.MonitorTextArea = uitextarea(app.FlexBenchAppUIFigure);
             app.MonitorTextArea.Editable = 'off';
             app.MonitorTextArea.FontName = 'Consolas';
             app.MonitorTextArea.FontSize = 16;
@@ -1080,12 +1251,13 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
             app.MonitorTextArea.Value = {'CONSOLE:'};
 
             % Create ComandEditField
-            app.ComandEditField = uieditfield(app.UIFigure, 'text');
+            app.ComandEditField = uieditfield(app.FlexBenchAppUIFigure, 'text');
             app.ComandEditField.ValueChangedFcn = createCallbackFcn(app, @ComandEditFieldValueChanged, true);
+            app.ComandEditField.BackgroundColor = [0.8 0.8 0.8];
             app.ComandEditField.Position = [20 20 700 30];
 
             % Create MovePanel
-            app.MovePanel = uipanel(app.UIFigure);
+            app.MovePanel = uipanel(app.FlexBenchAppUIFigure);
             app.MovePanel.BorderType = 'none';
             app.MovePanel.Position = [1250 50 200 200];
 
@@ -1118,7 +1290,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
             app.DownButton.Text = '↓';
 
             % Create SetPanel
-            app.SetPanel = uipanel(app.UIFigure);
+            app.SetPanel = uipanel(app.FlexBenchAppUIFigure);
             app.SetPanel.BorderType = 'none';
             app.SetPanel.Position = [1200 280 300 200];
 
@@ -1157,12 +1329,11 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
 
             % Create PresetedConfigurationsDropDown
             app.PresetedConfigurationsDropDown = uidropdown(app.SetPanel);
-            app.PresetedConfigurationsDropDown.Items = {''};
+            app.PresetedConfigurationsDropDown.Items = {'Select profile'};
             app.PresetedConfigurationsDropDown.ValueChangedFcn = createCallbackFcn(app, @PresetedConfigurationsDropDownValueChanged, true);
             app.PresetedConfigurationsDropDown.FontSize = 14;
-            app.PresetedConfigurationsDropDown.Placeholder = 'Prueba (P)';
             app.PresetedConfigurationsDropDown.Position = [15 17 270 25];
-            app.PresetedConfigurationsDropDown.Value = '';
+            app.PresetedConfigurationsDropDown.Value = 'Select profile';
 
             % Create SetHeightsButton
             app.SetHeightsButton = uibutton(app.SetPanel, 'push');
@@ -1172,39 +1343,9 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
             app.SetHeightsButton.Text = 'Set Heights';
 
             % Create TestPanel
-            app.TestPanel = uipanel(app.UIFigure);
+            app.TestPanel = uipanel(app.FlexBenchAppUIFigure);
             app.TestPanel.BorderType = 'none';
             app.TestPanel.Position = [850 280 300 200];
-
-            % Create NFilterIntervalLabel
-            app.NFilterIntervalLabel = uilabel(app.TestPanel);
-            app.NFilterIntervalLabel.HorizontalAlignment = 'center';
-            app.NFilterIntervalLabel.Position = [170 40 90 25];
-            app.NFilterIntervalLabel.Text = 'N Filter Interval';
-
-            % Create NFilterIntervalEditField
-            app.NFilterIntervalEditField = uieditfield(app.TestPanel, 'numeric');
-            app.NFilterIntervalEditField.HorizontalAlignment = 'center';
-            app.NFilterIntervalEditField.Position = [170 15 90 25];
-            app.NFilterIntervalEditField.Value = 30;
-
-            % Create CycleNumberEditField
-            app.CycleNumberEditField = uieditfield(app.TestPanel, 'numeric');
-            app.CycleNumberEditField.HorizontalAlignment = 'center';
-            app.CycleNumberEditField.Position = [40 15 90 25];
-            app.CycleNumberEditField.Value = 20;
-
-            % Create NCiclosLabel
-            app.NCiclosLabel = uilabel(app.TestPanel);
-            app.NCiclosLabel.HorizontalAlignment = 'center';
-            app.NCiclosLabel.Position = [40 40 90 25];
-            app.NCiclosLabel.Text = 'Cycle Number';
-
-            % Create ExcelGenerationCheckBox
-            app.ExcelGenerationCheckBox = uicheckbox(app.TestPanel);
-            app.ExcelGenerationCheckBox.Text = 'Excel Generation';
-            app.ExcelGenerationCheckBox.Position = [50 75 114 22];
-            app.ExcelGenerationCheckBox.Value = true;
 
             % Create StartTestButton
             app.StartTestButton = uibutton(app.TestPanel, 'state');
@@ -1212,10 +1353,10 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
             app.StartTestButton.Text = 'Start Test';
             app.StartTestButton.FontSize = 24;
             app.StartTestButton.FontWeight = 'bold';
-            app.StartTestButton.Position = [50 101 200 80];
+            app.StartTestButton.Position = [50 50 200 100];
 
             % Create ConnectPanel
-            app.ConnectPanel = uipanel(app.UIFigure);
+            app.ConnectPanel = uipanel(app.FlexBenchAppUIFigure);
             app.ConnectPanel.BorderType = 'none';
             app.ConnectPanel.Position = [1125 650 375 170];
 
@@ -1240,7 +1381,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
             app.PortDropDown = uidropdown(app.ConnectPanel);
             app.PortDropDown.Items = {''};
             app.PortDropDown.DropDownOpeningFcn = createCallbackFcn(app, @PortDropDownOpening, true);
-            app.PortDropDown.Placeholder = 'COM 8';
+            app.PortDropDown.Placeholder = 'Port';
             app.PortDropDown.Position = [30 120 80 30];
             app.PortDropDown.Value = '';
 
@@ -1250,7 +1391,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
             app.ConnectLamp.Color = [0.502 0.502 0.502];
 
             % Create ResistancePanel
-            app.ResistancePanel = uipanel(app.UIFigure);
+            app.ResistancePanel = uipanel(app.FlexBenchAppUIFigure);
             app.ResistancePanel.BorderType = 'none';
             app.ResistancePanel.TitlePosition = 'centertop';
             app.ResistancePanel.Position = [850 50 300 200];
@@ -1261,17 +1402,11 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
             app.ResistanceTestButton.Text = 'Resistance Test';
             app.ResistanceTestButton.FontSize = 24;
             app.ResistanceTestButton.FontWeight = 'bold';
-            app.ResistanceTestButton.Position = [50 100 200 80];
-
-            % Create ExcelGenerationCheckBox_2
-            app.ExcelGenerationCheckBox_2 = uicheckbox(app.ResistancePanel);
-            app.ExcelGenerationCheckBox_2.Text = 'Excel Generation';
-            app.ExcelGenerationCheckBox_2.Position = [50 75 114 22];
-            app.ExcelGenerationCheckBox_2.Value = true;
+            app.ResistanceTestButton.Position = [50 50 200 100];
 
             % Create FlexBenchLabel
-            app.FlexBenchLabel = uilabel(app.UIFigure);
-            app.FlexBenchLabel.BackgroundColor = [0.8 0.8 0.8];
+            app.FlexBenchLabel = uilabel(app.FlexBenchAppUIFigure);
+            app.FlexBenchLabel.BackgroundColor = [0.9608 0.9608 0.9608];
             app.FlexBenchLabel.HorizontalAlignment = 'center';
             app.FlexBenchLabel.FontName = 'Sitka Text';
             app.FlexBenchLabel.FontSize = 80;
@@ -1280,13 +1415,13 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
             app.FlexBenchLabel.Text = 'FlexBench';
 
             % Create Image
-            app.Image = uiimage(app.UIFigure);
+            app.Image = uiimage(app.FlexBenchAppUIFigure);
             app.Image.ScaleMethod = 'fill';
             app.Image.Position = [800 650 320 150];
-            app.Image.ImageSource = 'LogoUPM.png';
+            app.Image.ImageSource = fullfile(pathToMLAPP, 'LogoUPM.png');
 
             % Show the figure after all components are created
-            app.UIFigure.Visible = 'on';
+            app.FlexBenchAppUIFigure.Visible = 'on';
         end
     end
 
@@ -1300,7 +1435,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
             createComponents(app)
 
             % Register the app with App Designer
-            registerApp(app, app.UIFigure)
+            registerApp(app, app.FlexBenchAppUIFigure)
 
             % Execute the startup function
             runStartupFcn(app, @startupFcn)
@@ -1314,7 +1449,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
         function delete(app)
 
             % Delete UIFigure when app is deleted
-            delete(app.UIFigure)
+            delete(app.FlexBenchAppUIFigure)
         end
     end
 end

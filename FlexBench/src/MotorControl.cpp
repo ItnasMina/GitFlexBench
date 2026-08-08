@@ -40,6 +40,17 @@ void initMotor() {
   // Activamos el silencio absoluto (desactivado)
   driver.en_spreadCycle(true); 
   driver.pwm_autoscale(true);
+
+
+  uint8_t conexion = driver.test_connection();
+  
+  if (conexion == 0) {
+    Serial.println("[MOTOR] UART OK! Driver recibiendo configuración.");
+  } else {
+    Serial.print("[MOTOR] ERROR UART (Código ");
+    Serial.print(conexion);
+    Serial.println("): El driver está en modo por defecto.");
+  }
   
 }
 
