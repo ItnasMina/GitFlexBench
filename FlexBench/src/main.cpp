@@ -18,24 +18,26 @@ void setup() {
   #endif
 }
 
+
 void loop() {
   Command comando = readCommandMATLAB();
   
   if (comando.type != '\0') {
 
-    if (comando.type == 'U' || comando.type == 'D') {
+    if (comando.type == 'U' || comando.type == 'D' || comando.type == 'V' || comando.type == 'W') {
 
       comando.value = (comando.value <= 0) ? 100 : comando.value; // Por defecto, 100 pasos
       motorMove(comando.type, comando.value);
-        sendMessageMATLAB("MOVEMENT EXECUTED");
+      sendMessageMATLAB("MOVEMENT EXECUTED");
       
-
     }else if (comando.type == 'R') {
+
       sendMessageMATLAB("RES: " + String(leerResistencia()));
 
     }else if (comando.type == 'S') {
+
       setInitialPos();
-        sendMessageMATLAB("ZERO POSITION SET");
+      sendMessageMATLAB("ZERO POSITION SET");
 
     }else if (comando.type == 'P') {
 
@@ -46,15 +48,20 @@ void loop() {
       } else {
         sendMessageMATLAB("POS:" + String(getActualPos()));
       }
+
     }else if (comando.type == 'T') {
+      
       setTiempoMuestro(comando.value);
       #ifdef MESSAGE
         sendMessageMATLAB("SAMPLE TIME SET TO: " + String(comando.value) + " ms");
       #endif
+
     }else{
+      
       #ifdef MESSAGE
          sendMessageMATLAB("INVALID COMMAND");
       #endif
+
     }
   }
 }

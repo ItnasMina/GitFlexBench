@@ -291,12 +291,12 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
 
         % Button pushed function: UpButton
         function UpButtonPushed(app, event)
-            writeline(app.ESP32,"U5"); %Manda subir 5 steps
+            writeline(app.ESP32,"V50"); %Manda subir 5 steps
         end
 
         % Button pushed function: DownButton
         function DownButtonPushed(app, event)
-            writeline(app.ESP32,"D5") %Manda bajar 5 steps
+            writeline(app.ESP32,"W50") %Manda bajar 5 steps
         end
 
         % Button pushed function: SetMaxButton
@@ -349,12 +349,12 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
 
         % Button pushed function: BigUpButton
         function BigUpButtonPushed(app, event)
-            writeline(app.ESP32,"U50")  %Manda subir 50 steps
+            writeline(app.ESP32,"V2000")  %Manda subir 50 steps
         end
 
         % Button pushed function: BigDownButton
         function BigDownButtonPushed(app, event)
-            writeline(app.ESP32,"D50")  %Manda bajar 50 steps
+            writeline(app.ESP32,"W2000")  %Manda bajar 50 steps
         end
 
         % Value changed function: StartTestButton
@@ -803,7 +803,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                          
                         infoTest = sprintf("(Test %d of %d)", nTestActual, totalTests);
                         Attributes = {'Specimen Name'; 'Infill'; 'Length'; 'Thickness (mm)'; 'Width (cm)'; 'Test Number'};
-                        Values = {strLength + " cm"; strWidth; string(thickness_mm); specimenNameActual; string(infill_porc)};
+                        Values = {specimenName; string(infill_porc); strLength + " cm"; string(thickness_mm); strWidth; infoTest};
                         tablaInfo = table(Attributes, Values, 'VariableNames', {'Attribute', 'Value'});
                         
                         if genExcel == true
