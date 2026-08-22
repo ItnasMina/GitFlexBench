@@ -74,7 +74,6 @@ classdef SpecimenParamsDialog_exported < matlab.apps.AppBase
             app.Width_cm = app.WidthcmEditField.Value;
             app.Thickness_cm = app.ThicknesscmEditField.Value;
             app.Length_cm = str2double(app.LengthcmDropDown.Value);
-            app.Cycles = app.RepetitionsEditField.Value;
 
             
             % 2. Marcamos que NO se ha cancelado, ocultamos la ventana y reanudamos
@@ -159,13 +158,13 @@ classdef SpecimenParamsDialog_exported < matlab.apps.AppBase
             % Create InfillLabel
             app.InfillLabel = uilabel(app.TestTab);
             app.InfillLabel.HorizontalAlignment = 'center';
-            app.InfillLabel.Position = [260 245 120 25];
+            app.InfillLabel.Position = [245 245 150 25];
             app.InfillLabel.Text = 'Infill :';
 
             % Create InfillDropDown
             app.InfillDropDown = uidropdown(app.TestTab);
-            app.InfillDropDown.Items = {'Giroid (G)', 'Aligned Rectilinear (r)', 'Concentrical (C)', 'Cubic (+)', 'Full (F)'};
-            app.InfillDropDown.Position = [260 210 120 25];
+            app.InfillDropDown.Items = {'Giroid (G)', 'Aligned Rectilinear (r)', 'Concentrical (O)', 'Cubic (+)', 'Full (F)'};
+            app.InfillDropDown.Position = [245 210 150 25];
             app.InfillDropDown.Value = 'Giroid (G)';
 
             % Create WidthcmEditFieldLabel
@@ -321,14 +320,14 @@ classdef SpecimenParamsDialog_exported < matlab.apps.AppBase
             % Create InfillDropDown_2Label
             app.InfillDropDown_2Label = uilabel(app.ResistanceTab);
             app.InfillDropDown_2Label.HorizontalAlignment = 'center';
-            app.InfillDropDown_2Label.Position = [244 245 150 25];
+            app.InfillDropDown_2Label.Position = [245 245 150 25];
             app.InfillDropDown_2Label.Text = 'Infill :';
 
             % Create InfillDropDown_r
             app.InfillDropDown_r = uidropdown(app.ResistanceTab);
-            app.InfillDropDown_r.Items = {'Giroid (G)', 'Aligned Rectilinear (r)', 'Concentrical (C)', 'Cubic (+)'};
-            app.InfillDropDown_r.Position = [244 210 150 25];
-            app.InfillDropDown_r.Value = 'Aligned Rectilinear (r)';
+            app.InfillDropDown_r.Items = {'Giroid (G)', 'Aligned Rectilinear (r)', 'Concentrical (O)', 'Cubic (+)'};
+            app.InfillDropDown_r.Position = [245 210 150 25];
+            app.InfillDropDown_r.Value = 'Giroid (G)';
 
             % Create NFilterIntervalEditField_2Label
             app.NFilterIntervalEditField_2Label = uilabel(app.ResistanceTab);
@@ -345,6 +344,7 @@ classdef SpecimenParamsDialog_exported < matlab.apps.AppBase
             % Create AcceptButton_r
             app.AcceptButton_r = uibutton(app.ResistanceTab, 'push');
             app.AcceptButton_r.ButtonPushedFcn = createCallbackFcn(app, @AcceptButton_rPushed, true);
+            app.AcceptButton_r.BackgroundColor = [0.6 0.8392 0.5882];
             app.AcceptButton_r.FontSize = 18;
             app.AcceptButton_r.Position = [135 50 150 50];
             app.AcceptButton_r.Text = 'Accept';

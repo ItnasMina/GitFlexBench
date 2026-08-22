@@ -1,0 +1,273 @@
+# ==============================================================================
+# SCRIPT R: ANÁLISIS DE SENSORES PIEZORESISTIVOS (ESTABILIDAD VS SENSIBILIDAD)
+# ==============================================================================
+
+```{r}
+# ------------------------------------------------------------------------------
+# 1. CARGA DE LIBRERÍAS
+# ------------------------------------------------------------------------------
+
+library(tidyverse)
+library(readxl)
+library(fs)
+```
+
+```{r}
+# ------------------------------------------------------------------------------
+# 2. FUNCIÓN DE EXTRACCIÓN Y FUSIÓN DE DATOS
+# ------------------------------------------------------------------------------
+# Esta función lee un archivo Excel individual, extrae los metadatos y el resumen
+# por ciclo, y los combina en una única tabla limpia.
+procesar_ensayo_resumen <- function(ruta_archivo) {
+  
+  # A. Leer la información de la probeta
+  info <- read_excel(ruta_archivo, sheet = "Specimen_Info")
+  
+  # Pivotar de formato largo (Atributo-Valor) a ancho (una fila con columnas)
+  info_wide <- info %>%
+    pivot_wider(names_from = Attribute, values_from = Value) %>%
+    mutate(
+      # Limpiamos textos para que R los entienda como números
+      Length_cm = as.numeric(gsub(" cm", "", Length)),
+      Thickness_mm = as.numeric(`Thickness (mm)`),
+      Width_cm = as.numeric(`Width (cm)`),
+      Archivo = basename(ruta_archivo) # Aquí creamos la variable
+    ) %>%
+    select(`Specimen Name`, Infill, Length_cm, Thickness_mm, Width_cm, Archivo)
+  
+  # B. Leer el resumen de ciclos calculado por MATLAB
+  resumen_ciclos <- read_excel(ruta_archivo, sheet = "Cycle_Summary")
+  
+  # C. Fusionar: Repetir la info de la probeta para todos los ciclos de ese archivo
+  datos_combinados <- bind_cols(info_wide, resumen_ciclos)
+  
+  return(datos_combinados)
+}
+```
+
+```{r}
+# ------------------------------------------------------------------------------
+# 3. IMPORTACIÓN MASIVA (Ruta Dinámica)
+# ------------------------------------------------------------------------------
+# Cargar la librería para leer el entorno de RStudio
+library(rstudioapi)
+
+# 1. RStudio averigua dinámicamente dónde está guardado este script exacto
+ruta_script <- dirname(rstudioapi::getActiveDocumentContext()$path)
+
+# 2. Construimos la ruta a la carpeta "Datos" combinando ambas partes
+carpeta_datos <- file.path(ruta_script, "Datos") 
+
+# 3. Buscamos los Excel
+archivos_excel <- dir_ls(carpeta_datos, glob = "*.xlsx")
+
+# 4. (¡LA LÍNEA QUE FALTABA!) Leer todos los Excel y juntarlos en la variable
+df_todos_ciclos <- map_dfr(archivos_excel, procesar_ensayo_resumen)
+```
+
+```{r}
+# ------------------------------------------------------------------------------
+# 4. EXTRACCIÓN DE MÉTRICAS AVANZADAS (MODELO EXPONENCIAL Y AGREGACIÓN)
+# ------------------------------------------------------------------------------
+
+# PASO 1: Analizar la curva de cada Test individualmente
+df_tests <- df_todos_ciclos %>%
+  # Agrupamos por archivo para que no se mezclen ensayos de distintos días/momentos
+  group_by(Archivo, `Specimen Name`, Infill, Length_cm, Thickness_mm) %>%
+  # 'nest()' empaqueta todos los ciclos de ese test en una mini-tabla interna
+  nest() %>%
+  mutate(
+    # A. Ajuste del modelo exponencial para el Drift
+    modelo_drift = map(data, ~ {
+      tryCatch({
+        nls(Drift_R0 ~ R_inf + (R_1 - R_inf) * exp(-k * Cycle), 
+            data = .x, 
+            # Valores semilla lógicos basados en el propio ensayo (sin importar cuántos ciclos tenga)
+            start = list(R_inf = min(.x$Drift_R0, na.rm = TRUE), 
+                         R_1 = max(.x$Drift_R0, na.rm = TRUE), 
+                         k = 0.2))
+      }, error = function(e) NULL) # Si falla (ej. datos planos), devuelve NULL de forma segura
+    }),
+    
+    # B. Extraer la Resistencia en Régimen Permanente (R_inf)
+    Drift_Regimen_Permanente = map2_dbl(modelo_drift, data, ~ {
+      if(is.null(.x)) {
+        # Si no hubo curva, cogemos la media de los últimos 5 ciclos del test (sea cual sea el total)
+        return(mean(tail(.y$Drift_R0, 5), na.rm = TRUE)) 
+      } else {
+        return(coef(.x)["R_inf"])
+      }
+    }),
+    
+    # C. Extraer los Ciclos necesarios para estabilizar al 95%
+    Ciclos_Para_Estabilizar = map_dbl(modelo_drift, ~ {
+      if(is.null(.x)) return(0) # Si es plano, ya estaba estabilizado (0 ciclos)
+      k_val <- coef(.x)["k"]
+      if(k_val > 0) return(-log(0.05) / k_val) else return(NA)
+    }),
+    
+    # D. Otras métricas clásicas excluyendo el ciclo 1 (Mullins)
+    Test_GF_Medio = map_dbl(data, ~ mean(filter(.x, Cycle > 1)$GF_Max, na.rm = TRUE)),
+    Test_GF_CV_Porc = map_dbl(data, ~ {
+      datos_limpios <- filter(.x, Cycle > 1)
+      (sd(datos_limpios$GF_Max, na.rm = TRUE) / mean(datos_limpios$GF_Max, na.rm = TRUE)) * 100
+    }),
+    Test_Linearity_R2 = map_dbl(data, ~ mean(filter(.x, Cycle > 1)$Linearity_R2, na.rm = TRUE)),
+    Test_Hysteresis = map_dbl(data, ~ mean(filter(.x, Cycle > 1)$Hysteresis_Area, na.rm = TRUE))
+  ) %>%
+  # Limpiamos las columnas temporales anidadas
+  select(-data, -modelo_drift)
+
+# PASO 2: Calcular métricas globales por PROBETA
+df_probetas <- df_tests %>%
+  group_by(`Specimen Name`, Infill, Length_cm, Thickness_mm) %>%
+  summarise(
+    GF_Medio = mean(Test_GF_Medio, na.rm = TRUE),
+    GF_CV_Porc = mean(Test_GF_CV_Porc, na.rm = TRUE),
+    
+    # Nuestras nuevas métricas de estabilización:
+    Resistencia_Base_Real = mean(Drift_Regimen_Permanente, na.rm = TRUE),
+    Ciclos_Estabilizacion_Medios = mean(Ciclos_Para_Estabilizar, na.rm = TRUE),
+    
+    Linearity_R2_Medio = mean(Test_Linearity_R2, na.rm = TRUE),
+    Hysteresis_Media = mean(Test_Hysteresis, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+```{r}
+# ------------------------------------------------------------------------------
+# 5. ANÁLISIS ESTADÍSTICO Y TABLA RESUMEN
+# ------------------------------------------------------------------------------
+
+# A. SIEMPRE generamos y mostramos la tabla resumen (independientemente del ANOVA)
+df_estetico <- df_probetas %>% mutate(across(where(is.numeric), ~ round(., 3)))
+if (!requireNamespace("knitr", quietly = TRUE)) install.packages("knitr")
+cat("\n")
+print(knitr::kable(df_estetico, align = "c", caption = "Métricas Globales de los Sensores"))
+View(df_estetico, title = "Tabla Resumen Sensores")
+
+# B. Intentamos calcular el ANOVA si hay más de 1 probeta
+if (nrow(df_probetas) > 1) {
+  cat("\n--- RESULTADOS ANOVA ---\n")
+  tryCatch({
+    # Modelos multifactoriales (Eliminada la variable Length_cm)
+    modelo_inestabilidad <- aov(GF_CV_Porc ~ Infill * as.factor(Thickness_mm), data = df_probetas)
+    cat("\n>> INFLUENCIAS SOBRE LA INESTABILIDAD (CV%):\n")
+    print(summary(modelo_inestabilidad))
+    
+    modelo_linealidad <- aov(Linearity_R2_Medio ~ Infill * as.factor(Thickness_mm), data = df_probetas)
+    cat("\n>> INFLUENCIAS SOBRE LA LINEALIDAD (R^2):\n")
+    print(summary(modelo_linealidad))
+    
+  }, error = function(e) {
+    cat("[AVISO ESTADÍSTICO] El ANOVA no se ha podido calcular.\n")
+    cat("Motivo: Estás intentando evaluar el impacto de variables que aún no tienen suficientes niveles.\n")
+    cat("Solución: Ensaya probetas con distintos grosores o rellenos para que R pueda comparar.\n")
+  })
+} else {
+  cat("\n[AVISO] Solo hay 1 probeta cargada. Se necesitan más para el ANOVA.\n")
+}
+```
+
+```{r}
+# ------------------------------------------------------------------------------
+# 6. VISUALIZACIÓN: FRENTE DE PARETO (ESTABILIDAD VS SENSIBILIDAD)
+# ------------------------------------------------------------------------------
+grafica_pareto <- ggplot(df_probetas, 
+                         aes(x = GF_CV_Porc, 
+                             y = GF_Medio, 
+                             color = Infill, 
+                             shape = as.factor(Thickness_mm),
+                             size = as.factor(Length_cm))) +
+  geom_point(alpha = 0.8, size = 4) +
+  geom_text(aes(label = `Specimen Name`), vjust = -1, size = 3, show.legend = FALSE) +
+  scale_size_discrete(name = "Largo (cm)") +
+  labs(
+    title = "Optimización del Sensor: Sensibilidad vs Estabilidad",
+    subtitle = "Ubicación del sensor en el frente de optimización",
+    x = "Inestabilidad (CV del Gauge Factor en %)",
+    y = "Sensibilidad (Gauge Factor Medio)",
+    color = "Infill",
+    shape = "Grosor (mm)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "right", plot.title = element_text(face = "bold"))
+
+# Añadir líneas divisorias solo si hay múltiples probetas para calcular medianas
+if (nrow(df_probetas) > 1) {
+  grafica_pareto <- grafica_pareto +
+    geom_vline(aes(xintercept = median(GF_CV_Porc, na.rm = TRUE)), linetype = "dashed", color = "gray50") +
+    geom_hline(aes(yintercept = median(GF_Medio, na.rm = TRUE)), linetype = "dashed", color = "gray50")
+}
+
+print(grafica_pareto)
+```
+
+```{r}
+# ------------------------------------------------------------------------------
+# 7. RECAPITULACIÓN DEL PROGRESO DE LA CAMPAÑA DE ENSAYOS (AJUSTADO A 40)
+# ------------------------------------------------------------------------------
+
+# 1. Agrupar por probeta física y contar archivos ÚNICOS (Tests reales)
+resumen_probetas <- df_todos_ciclos %>% 
+  group_by(`Specimen Name`, Length_cm, Thickness_mm, Infill) %>%
+  summarise(Num_Tests = n_distinct(Archivo), .groups = 'drop')
+
+# 2. Separar las probetas terminadas (5 tests) de las que están a medias
+probetas_completas <- resumen_probetas %>% filter(Num_Tests == 5)
+probetas_incompletas <- resumen_probetas %>% filter(Num_Tests < 5)
+
+total_actual <- nrow(probetas_completas)
+
+# 3. Generación automática y dinámica de categorías
+conteo_longitud <- probetas_completas %>% count(Length_cm)
+conteo_grosor   <- probetas_completas %>% count(Thickness_mm)
+conteo_infill   <- probetas_completas %>% count(Infill)
+
+# 4. Impresión por pantalla del sumario principal
+cat("========================================\n")
+# ¡Modificado aquí el total esperado a 40!
+cat(sprintf("PROBETAS COMPLETADAS: %d/40\n", total_actual))
+cat("========================================\n")
+
+# --- BLOQUE DINÁMICO DE LONGITUD ---
+cat("* Longitudes:\n")
+if(nrow(conteo_longitud) > 0) {
+  for (i in 1:nrow(conteo_longitud)) {
+    cat(sprintf("  - %g cm: %d\n", conteo_longitud$Length_cm[i], conteo_longitud$n[i]))
+  }
+} else { cat("  (Sin datos)\n") }
+cat("\n")
+
+# --- BLOQUE DINÁMICO DE GROSOR ---
+cat("* Grosores:\n")
+if(nrow(conteo_grosor) > 0) {
+  for (i in 1:nrow(conteo_grosor)) {
+    cat(sprintf("  - %g mm: %d\n", conteo_grosor$Thickness_mm[i], conteo_grosor$n[i]))
+  }
+} else { cat("  (Sin datos)\n") }
+cat("\n")
+
+# --- BLOQUE DINÁMICO DE INFILL ---
+cat("* Infill (Rellenos):\n")
+if(nrow(conteo_infill) > 0) {
+  for (i in 1:nrow(conteo_infill)) {
+    cat(sprintf("  - %s: %d\n", conteo_infill$Infill[i], conteo_infill$n[i]))
+  }
+} else { cat("  (Sin datos)\n") }
+cat("========================================\n")
+
+# 5. Listar las probetas incompletas al final
+if (nrow(probetas_incompletas) > 0) {
+  cat("\n⚠️ PROBETAS INCOMPLETAS (Pendientes de acabar ensayos):\n")
+  for (i in 1:nrow(probetas_incompletas)) {
+    cat(sprintf("  - Probeta '%s': %d/5 tests\n", 
+                probetas_incompletas$`Specimen Name`[i], 
+                probetas_incompletas$Num_Tests[i]))
+  }
+} else {
+  cat("\n✅ No hay probetas a medias. Todas las empezadas están terminadas.\n")
+}
+cat("========================================\n")
+```

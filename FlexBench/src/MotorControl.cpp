@@ -2,6 +2,8 @@
 #include <Arduino.h>
 #include "MotorControl.hpp"
 #include "Pinout.hpp"
+#include "SensorControl.hpp"
+#include "MATLABComms.hpp"
 
 // Configuración del driver TMC2209
 #define R_SENSE 0.11f
@@ -41,7 +43,7 @@ void initMotor() {
   driver.begin();
   driver.toff(5);
   driver.rms_current(1100);
-  driver.microsteps(64);
+  driver.microsteps(256);
   
   // Activamos el silencio absoluto (desactivado)
   driver.en_spreadCycle(true); 
@@ -72,7 +74,6 @@ void motorMove(char direccion, int steps) {
   if (direccion == 'U') {
     digitalWrite(DIR_PIN, HIGH); // Subir
     for (int i = 0; i < steps; i++) {
-
       digitalWrite(STEP_PIN, HIGH); 
       delayMicroseconds(400);
       digitalWrite(STEP_PIN, LOW);
@@ -80,18 +81,28 @@ void motorMove(char direccion, int steps) {
       
       posicionActual++;
 
+      if (i % 5 == 0) {
+        sendMessageMATLAB("POS:" + String(posicionActual));
+        sendMessageMATLAB("RES:" + String(leerResistencia()));
+      }
+      
       if (i % 50 == 0) yield();
     }
   } else if (direccion == 'D') {
     digitalWrite(DIR_PIN, LOW); // Bajar
     for (int i = 0; i < steps; i++) {
-
       digitalWrite(STEP_PIN, HIGH);
       delayMicroseconds(400);
       digitalWrite(STEP_PIN, LOW);
       delayMicroseconds(400);
 
       posicionActual--;
+
+
+      if (i % 5 == 0) {
+        sendMessageMATLAB("POS:" + String(posicionActual));
+        sendMessageMATLAB("RES:" + String(leerResistencia()));
+      }
 
       if (i % 50 == 0) yield();
     }

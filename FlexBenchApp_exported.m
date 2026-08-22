@@ -39,7 +39,6 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
     
     properties (Access = private)
     ESP32           % El puerto serie
-    TimerDatos      % El cronómetro para pedir datos
     PauseTime = 3   % Duración de la pausa de estabilización
 
     % Hueco para cargar nuestra ventana secundaria (configuracion)
@@ -48,12 +47,6 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
     % Registro de alturas del ciclo
     AlturaMax = 0
     AlturaMin = 0
-
-    % Registro de estado de paneles
-    estadoPrevioSet
-    estadoPrevioMove
-    estadoPrevioTest
-    estadoPrevioParam
 
     % Registro del número de ciclos
     NumCiclos = 20
@@ -127,9 +120,10 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                                 writetable(app.TablaPerfiles, rutaExcel);
                                 
                                 % Actualizar DropDown
-                                app.PresetedConfigurationsDropDown.Items = app.TablaPerfiles.Nombre_Perfil;
+                                nombresStr = string(app.TablaPerfiles.Nombre_Perfil)';
+                                app.PresetedConfigurationsDropDown.Items = ["Select profile", nombresStr];
                                 app.PresetedConfigurationsDropDown.Value = nuevoNombre;
-                                app.CycleNumberEditField.Value = nuevosCiclos;
+                                app.NumCiclos = nuevosCiclos;
                                 app.MonitorTextArea.Value = [app.MonitorTextArea.Value; "> Preset saved perfectly."];
                             catch ME
                                 app.MonitorTextArea.Value = [app.MonitorTextArea.Value; "> Error saving Excel: " + ME.message];
@@ -194,15 +188,19 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                 if isempty(rutaScript)
                     rutaScript = pwd;
                 end
-    
-                rutaExcel = fullfile(rutaScript, 'perfiles_ensayo.xlsx');
-                
+                   
                 % 2. Buscar el Excel en esa misma carpeta
                 rutaExcel = fullfile(rutaScript, 'Test_profile.xlsx');
                 
                 % 3. Leer los datos y rellenar el menú
                 app.TablaPerfiles = readtable(rutaExcel);
-                app.PresetedConfigurationsDropDown.Items = app.TablaPerfiles.Nombre_Perfil;
+                
+                % Convertimos los nombres a lista y añadimos la opción neutra al principio
+                nombresStr = string(app.TablaPerfiles.Nombre_Perfil)';
+                app.PresetedConfigurationsDropDown.Items = ["Select profile", nombresStr];
+                
+                % Forzamos a que la opción visible al inicio sea la neutra
+                app.PresetedConfigurationsDropDown.Value = "Select profile";
                 
             catch ME
                 % Si no encuentra el archivo o está mal escrito
@@ -291,12 +289,12 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
 
         % Button pushed function: UpButton
         function UpButtonPushed(app, event)
-            writeline(app.ESP32,"V50"); %Manda subir 5 steps
+            writeline(app.ESP32,"V250");
         end
 
         % Button pushed function: DownButton
         function DownButtonPushed(app, event)
-            writeline(app.ESP32,"W50") %Manda bajar 5 steps
+            writeline(app.ESP32,"W250")
         end
 
         % Button pushed function: SetMaxButton
@@ -510,9 +508,10 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                     if app.StartTestButton.Value == false, break; end 
     
                     % 4. BUCLE DE ENSAYO
-                    pasosMuestreo = 1; datosEnsayo = [];
+                    datosEnsayo = [];
                     t_inicio = tic;
                     posTemp = NaN; 
+
                     
                     for i = 1:nCiclos
                         if app.StartTestButton.Value == false, break; end 
@@ -520,43 +519,35 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                         app.MonitorTextArea.Value = [app.MonitorTextArea.Value; sprintf("> TEST %d: Cycle %d/%d (0.0%%)", nTestActual, i, nCiclos)];
                         scroll(app.MonitorTextArea, 'bottom');
                         drawnow;
-    
-                        pasosTotalesCiclo = amplitudMedia * 4; pasosDados = 0;
+  
                         
                         % .2a SUBIDA 
-                        pasosRestantes = amplitudMedia;
-                        while pasosRestantes > 0
+                        writeline(app.ESP32, "U" + string(amplitudMedia));
+                        
+                        while true
                             if app.StartTestButton.Value == false, break; end 
-                            pasos = min(pasosMuestreo, pasosRestantes);
-                            writeline(app.ESP32, "U" + string(pasos));
-                            while ~startsWith(readline(app.ESP32), "MOVEMENT EXECUTED"); drawnow; end
                             
-                            writeline(app.ESP32, "P");
-                            posTemp = NaN;
-                            while true, resp = readline(app.ESP32);
-                                if startsWith(resp, "POS:")
-                                    num = regexp(resp, '-?\d+\.?\d*', 'match');
-                                    posTemp = str2double(num{1});
-                                    break;
-                                end
+                            resp = readline(app.ESP32);
+                            
+                            if startsWith(resp, "MOVEMENT EXECUTED")
+                                break; % El motor ha terminado de subir
+                            elseif startsWith(resp, "POS:")
+                                num = regexp(resp, '-?\d+\.?\d*', 'match');
+                                posTemp = str2double(num{1});
+                            elseif startsWith(resp, "RES:")
+                                num = regexp(resp, '-?\d+\.?\d*', 'match');
+                                resTemp = str2double(num{1});
+                                
+                                % Guardamos el dato en cuanto recibimos la resistencia
+                                datosEnsayo = [datosEnsayo; i, posTemp, 1, toc(t_inicio), resTemp,];
+                                
+                                % Refresco de UI (opcional y simplificado para velocidad)
+                                progreso = (posTemp - (posicionPlana)) / (amplitudMedia) * 25; 
+                                lineas = string(app.MonitorTextArea.Value); 
+                                lineas(end) = sprintf("> TEST %d: Cycle %d/%d (Subiendo...)", nTestActual, i, nCiclos); 
+                                app.MonitorTextArea.Value = cellstr(lineas);
                             end
-                            writeline(app.ESP32, "R");
-                            resTemp = NaN;
-                            while true, resp = readline(app.ESP32);
-                                if startsWith(resp, "RES:")
-                                    num = regexp(resp, '-?\d+\.?\d*', 'match');
-                                    resTemp = str2double(num{1});
-                                    break;
-                                end
-                            end
-    
-                            datosEnsayo = [datosEnsayo; i, posTemp, resTemp, toc(t_inicio)];
-                            pasosRestantes = pasosRestantes - pasos; pasosDados = pasosDados + pasos;
-                            progreso = (pasosDados / pasosTotalesCiclo) * 100;
-                            lineas = string(app.MonitorTextArea.Value);
-                            lineas(end) = sprintf("> TEST %d: Cycle %d/%d (%.1f%%)", nTestActual, i, nCiclos, progreso);
-                            app.MonitorTextArea.Value = cellstr(lineas);
-                            drawnow; 
+                            drawnow;
                         end
                         if app.StartTestButton.Value == false, break; end 
                         
@@ -581,7 +572,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                                     break;
                                 end
                             end
-                            datosEnsayo = [datosEnsayo; i, posTemp, resTemp, toc(t_inicio)]; 
+                            datosEnsayo = [datosEnsayo; i, posTemp, 2, toc(t_inicio), resTemp,];
                             
                             segundoRestante = ceil(app.PauseTime - toc(t_pausa));
                             if segundoRestante < segundoActual && segundoRestante > 0
@@ -598,42 +589,30 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                         drawnow;
                         
                         % .2c BAJADA 
-                        pasosRestantes = amplitudMedia*2;
-                        while pasosRestantes > 0
+                        writeline(app.ESP32, "D" + string(amplitudMedia*2));
+                        
+                        while true
                             if app.StartTestButton.Value == false, break; end 
-                            pasos = min(pasosMuestreo, pasosRestantes);
-                            writeline(app.ESP32, "D" + string(pasos));
-                            while ~startsWith(readline(app.ESP32), "MOVEMENT EXECUTED"); drawnow; end
                             
-                            writeline(app.ESP32, "P");
-                            posTemp = NaN;
-                            while true, resp = readline(app.ESP32);
-                                if startsWith(resp, "POS:")
-                                    num = regexp(resp, '-?\d+\.?\d*', 'match');
-                                    posTemp = str2double(num{1});
-                                    break;
-                                end
-                            end
-                            writeline(app.ESP32, "R");
-                            resTemp = NaN;
-                            while true
-                                resp = readline(app.ESP32);
-                                if startsWith(resp, "RES:")
-                                    num = regexp(resp, '-?\d+\.?\d*', 'match');
-                                    resTemp = str2double(num{1});
-                                    break;
-                                end
-                            end
+                            resp = readline(app.ESP32);
                             
-                            datosEnsayo = [datosEnsayo; i, posTemp, resTemp, toc(t_inicio)];
-                            pasosRestantes = pasosRestantes - pasos;
-                            pasosDados = pasosDados + pasos;
-                            progreso = (pasosDados / pasosTotalesCiclo) * 100;
-                            lineas = string(app.MonitorTextArea.Value);
-                            lineas(end) = sprintf("> TEST %d: Cycle %d/%d (%.1f%%)", nTestActual, i, nCiclos, progreso);
-                            app.MonitorTextArea.Value = cellstr(lineas);
-                            drawnow; 
+                            if startsWith(resp, "MOVEMENT EXECUTED")
+                                break;
+                            elseif startsWith(resp, "POS:")
+                                num = regexp(resp, '-?\d+\.?\d*', 'match');
+                                posTemp = str2double(num{1});
+                            elseif startsWith(resp, "RES:")
+                                num = regexp(resp, '-?\d+\.?\d*', 'match');
+                                resTemp = str2double(num{1});
+                                
+                                datosEnsayo = [datosEnsayo; i, posTemp, 3, toc(t_inicio), resTemp,];
+                                lineas = string(app.MonitorTextArea.Value); 
+                                lineas(end) = sprintf("> TEST %d: Cycle %d/%d (Bajando...)", nTestActual, i, nCiclos); 
+                                app.MonitorTextArea.Value = cellstr(lineas);
+                            end
+                            drawnow;
                         end
+
                         if app.StartTestButton.Value == false, break; end 
     
                         % .2d Pausa en Mínimo (CUENTA ATRÁS ENTERA)
@@ -656,7 +635,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                                     break;
                                 end
                             end
-                            datosEnsayo = [datosEnsayo; i, posTemp, resTemp, toc(t_inicio)]; 
+                            datosEnsayo = [datosEnsayo; i, posTemp, 4, toc(t_inicio), resTemp,];
                             
                             segundoRestante = ceil(app.PauseTime - toc(t_pausa));
                             if segundoRestante < segundoActual && segundoRestante > 0
@@ -666,6 +645,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                                 drawnow;
                                 segundoActual = segundoRestante;
                             end
+                        
                         end
                         if app.StartTestButton.Value == false, break; end 
                         lineas = string(app.MonitorTextArea.Value);
@@ -674,39 +654,27 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                         drawnow;
     
                         % .2e SUBIDA 
-                        pasosRestantes = amplitudMedia; 
-                        while pasosRestantes > 0
+                        writeline(app.ESP32, "U" + string(amplitudMedia));
+                        
+                        while true
                             if app.StartTestButton.Value == false, break; end 
-                            pasos = min(pasosMuestreo, pasosRestantes);
-                            writeline(app.ESP32, "U" + string(pasos));
-                            while ~startsWith(readline(app.ESP32), "MOVEMENT EXECUTED"); drawnow; end
-    
-                            writeline(app.ESP32, "P"); posTemp = NaN;
-                            while true
-                                resp = readline(app.ESP32);
-                                if startsWith(resp, "POS:")
-                                    num = regexp(resp, '-?\d+\.?\d*', 'match');
-                                    posTemp = str2double(num{1});
-                                    break;
-                                end
+                            
+                            resp = readline(app.ESP32);
+                            
+                            if startsWith(resp, "MOVEMENT EXECUTED")
+                                break;
+                            elseif startsWith(resp, "POS:")
+                                num = regexp(resp, '-?\d+\.?\d*', 'match');
+                                posTemp = str2double(num{1});
+                            elseif startsWith(resp, "RES:")
+                                num = regexp(resp, '-?\d+\.?\d*', 'match');
+                                resTemp = str2double(num{1});
+                                
+                                datosEnsayo = [datosEnsayo; i, posTemp, 5, toc(t_inicio), resTemp,];
+                                lineas = string(app.MonitorTextArea.Value); 
+                                lineas(end) = sprintf("> TEST %d: Cycle %d/%d (Volviendo al centro...)", nTestActual, i, nCiclos); 
+                                app.MonitorTextArea.Value = cellstr(lineas);
                             end
-                            writeline(app.ESP32, "R"); resTemp = NaN;
-                            while true
-                                resp = readline(app.ESP32);
-                                if startsWith(resp, "RES:"),
-                                    num = regexp(resp, '-?\d+\.?\d*', 'match');
-                                    resTemp = str2double(num{1});
-                                    break; 
-                                end
-                            end
-    
-                            datosEnsayo = [datosEnsayo; i, posTemp, resTemp, toc(t_inicio)];
-                            pasosRestantes = pasosRestantes - pasos;
-                            pasosDados = pasosDados + pasos;
-                            progreso = (pasosDados / pasosTotalesCiclo) * 100;
-                            lineas = string(app.MonitorTextArea.Value);
-                            lineas(end) = sprintf("> TEST %d: Cycle %d/%d (%.1f%%)", nTestActual, i, nCiclos, progreso);
-                            app.MonitorTextArea.Value = cellstr(lineas);
                             drawnow;
                         end
                         if app.StartTestButton.Value == false, break; end 
@@ -732,7 +700,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                                     break;
                                 end
                             end
-                            datosEnsayo = [datosEnsayo; i, posTemp, resTemp, toc(t_inicio)]; 
+                            datosEnsayo = [datosEnsayo; i, posTemp, 6, toc(t_inicio), resTemp,];
                             
                             segundoRestante = ceil(app.PauseTime - toc(t_pausa));
                             if segundoRestante < segundoActual && segundoRestante > 0
@@ -762,7 +730,7 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                     if isempty(datosEnsayo)
                         app.MonitorTextArea.Value = [app.MonitorTextArea.Value; "> No data collected. Excel skipped."];
                     else
-                        resistenciaMedia = movmean(datosEnsayo(:, 3), nFilter);
+                        resistenciaMedia = movmean(datosEnsayo(:, 5), nFilter);
                         datosCompletos = [datosEnsayo, resistenciaMedia]; 
                         
                         modulo = 1;
@@ -784,14 +752,14 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                         for j = 1:ciclosEjecutados
                             idxCiclo = find(datosCompletos(:, 1) == j);
                             if ~isempty(idxCiclo)
-                                R0 = datosCompletos(idxCiclo(1), 5);
+                                R0 = datosCompletos(idxCiclo(1), 6);
                                 Pos0 = datosCompletos(idxCiclo(1), 2); 
                                 for k = 1:length(idxCiclo)
                                     fila = idxCiclo(k);
                                     deflexion_mm = abs(datosCompletos(fila, 2) - Pos0) * avancePorPaso; 
                                     epsilon = (6 * deflexion_mm * thickness_mm) / (L0_mm^2);
                                     columnaDeformacion(fila) = epsilon;
-                                    deltaR = datosCompletos(fila, 5) - R0;
+                                    deltaR = datosCompletos(fila, 6) - R0;
                                     variacionRelativaR = deltaR / R0;
                                     if abs(epsilon) < 1e-4, columnaGF(fila) = NaN; else, columnaGF(fila) = variacionRelativaR / epsilon; end
                                 end
@@ -799,7 +767,60 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                         end
                         
                         datosCompletos = [datosCompletos, columnaDeformacion, columnaGF];
-                        tablaDatos = array2table(datosCompletos, 'VariableNames', {'Cycle', 'Position', 'Resistance', 'Time', 'Average_Resistance', 'Strain', 'Gauge_Factor'});
+                        
+                        % --- CÁLCULO DEL RESUMEN POR CICLO (CYCLE SUMMARY) ---
+                        resumenCiclos = zeros(ciclosEjecutados, 5); 
+
+                        for c = 1:ciclosEjecutados
+                            idxCicloC = find(datosCompletos(:, 1) == c);
+                            datosC = datosCompletos(idxCicloC, :);
+                            
+                            resumenCiclos(c, 1) = c; 
+                            
+                            % Drift (Fase 6: Pausa en Medio)
+                            idxFase6 = find(datosC(:, 3) == 6);
+                            if ~isempty(idxFase6)
+                                resumenCiclos(c, 2) = mean(datosC(idxFase6, 6));
+                            else
+                                resumenCiclos(c, 2) = NaN;
+                            end
+                            
+                            % Linealidad R2 y GF_Max (Fase 1: Subida)
+                            idxFase1 = find(datosC(:, 3) == 1);
+                            if length(idxFase1) > 1
+                                Strain_F1 = datosC(idxFase1, 7);
+                                GF_F1 = datosC(idxFase1, 8);
+                                DeltaR_R0 = Strain_F1 .* GF_F1;
+                                
+                                indices_validos = ~isnan(DeltaR_R0); % Buscamos dónde NO hay NaNs
+                                matrizCorrelacion = corrcoef(Strain_F1(indices_validos), DeltaR_R0(indices_validos));
+                                
+                                if numel(matrizCorrelacion) >= 4
+                                    resumenCiclos(c, 3) = matrizCorrelacion(1, 2)^2;
+                                else
+                                    resumenCiclos(c, 3) = NaN;
+                                end
+                                resumenCiclos(c, 4) = max(GF_F1);
+                            else
+                                resumenCiclos(c, 3) = NaN;
+                                resumenCiclos(c, 4) = NaN;
+                            end
+                            
+                            % Histéresis (Área Fase 1 vs Fase 3)
+                            idxFase3 = find(datosC(:, 3) == 3);
+                            if length(idxFase1) > 1 && length(idxFase3) > 1
+                                AreaCarga = trapz(abs(datosC(idxFase1, 2)), datosC(idxFase1, 6));
+                                AreaDescarga = trapz(abs(datosC(idxFase3, 2)), datosC(idxFase3, 6));
+                                resumenCiclos(c, 5) = abs(AreaCarga - AreaDescarga);
+                            else
+                                resumenCiclos(c, 5) = NaN;
+                            end
+                        end
+
+                        tablaResumen = array2table(resumenCiclos, 'VariableNames', {'Cycle', 'Drift_R0', 'Linearity_R2', 'GF_Max', 'Hysteresis_Area'});
+                        
+                        nombresColumnas = {'Cycle', 'Position', 'Phase', 'Time', 'Resistance', 'Average_Resistance', 'Strain', 'Gauge_Factor'};
+                        tablaDatos = array2table(datosCompletos, 'VariableNames', nombresColumnas);
                          
                         infoTest = sprintf("(Test %d of %d)", nTestActual, totalTests);
                         Attributes = {'Specimen Name'; 'Infill'; 'Length'; 'Thickness (mm)'; 'Width (cm)'; 'Test Number'};
@@ -817,6 +838,8 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                             fechaStr = char(datetime('now', 'Format', 'yy-MM-dd     HH;mm;ss'));
                             nombreArchivo = fullfile(rutaDestino, sprintf("Test_%s_T%d_%s.xlsx", specimenName, nTestActual, fechaStr));
                             
+                            % ORDEN DE HOJAS: 1: Cycle_Summary, 2: Test_Data, 3: Specimen_Info
+                            writetable(tablaResumen, nombreArchivo, 'Sheet', 'Cycle_Summary');
                             writetable(tablaDatos, nombreArchivo, 'Sheet', 'Test_Data');
                             writetable(tablaInfo, nombreArchivo, 'Sheet', 'Specimen_Info');
                             
@@ -824,9 +847,13 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                                 Excel = actxserver('Excel.Application');
                                 Workbook = Excel.Workbooks.Open(nombreArchivo);
                                                  
-                                % Autoajustar la hoja de datos
-                                Sheet = Workbook.Sheets.Item('Test_Data'); 
-                                Sheet.Columns.AutoFit();
+                                % Autoajustar hojas
+                                SheetSum = Workbook.Sheets.Item('Cycle_Summary');
+                                SheetSum.Columns.AutoFit();
+                                
+                                SheetData = Workbook.Sheets.Item('Test_Data'); 
+                                SheetData.Columns.AutoFit();
+                                
                                 SheetInfo = Workbook.Sheets.Item('Specimen_Info');
                                 SheetInfo.Columns.AutoFit();
 
@@ -834,8 +861,8 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                                 
                                 maxTiempo = max(datosCompletos(:, 4));
                                 escalaMaxTiempo = maxTiempo * 1.05;
-                                minRes = min(datosCompletos(:, 5));
-                                maxRes = max(datosCompletos(:, 5));
+                                minRes = min(datosCompletos(:, 6));
+                                maxRes = max(datosCompletos(:, 6));
                                 margenRes = (maxRes - minRes) * 0.1;
                                 if margenRes == 0, margenRes = 50; end
                                 escalaMinRes = floor((minRes - margenRes) / 10) * 10;
@@ -845,20 +872,19 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                                 Grafico1 = Excel.Charts.Add; Grafico1.ChartType = 'xlXYScatter'; 
                                 while Grafico1.SeriesCollection.Count > 0, Grafico1.SeriesCollection.Item(1).Delete; end
                                 
-                                %Serie 1
                                 Serie1 = Grafico1.SeriesCollection.NewSeries;
-                                Serie1.XValues = Sheet.Range(sprintf('D2:D%d', numFilas));
-                                Serie1.Values = Sheet.Range(sprintf('E2:E%d', numFilas));
+                                Serie1.XValues = SheetData.Range(sprintf('D2:D%d', numFilas));
+                                Serie1.Values = SheetData.Range(sprintf('F2:F%d', numFilas));
                                 Serie1.MarkerStyle = 8;
                                 Serie1.MarkerSize = 2;
-                                %Gráfico
+                                
                                 Grafico1.HasTitle = true; Grafico1.ChartTitle.Text = 'Resistance vs Time (Filtered)';
                                 Grafico1.HasLegend = false; 
                                 Grafico1.Axes(1).HasTitle = true; Grafico1.Axes(1).AxisTitle.Text = 'Time (s)';
                                 Grafico1.Axes(1).MinimumScale = 0; Grafico1.Axes(1).MaximumScale = escalaMaxTiempo;
                                 Grafico1.Axes(2).HasTitle = true; Grafico1.Axes(2).AxisTitle.Text = 'Average Resistance (Ohms)';
                                 Grafico1.Axes(2).MinimumScale = escalaMinRes; Grafico1.Axes(2).MaximumScale = escalaMaxRes;
-                                Grafico1.Location(2, Sheet.Name); Shape1 = Sheet.Shapes.Item(Sheet.Shapes.Count);
+                                Grafico1.Location(2, SheetData.Name); Shape1 = SheetData.Shapes.Item(SheetData.Shapes.Count);
                                 Shape1.Width = 600; Shape1.Height = 350; Shape1.Top = 20; Shape1.Left = 550; 
                                 
                                 % Gráfico 2
@@ -867,14 +893,16 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                                 for c = 1:ciclosEjecutados
                                     filasCiclo = find(datosCompletos(:, 1) == c);
                                     if ~isempty(filasCiclo)
-                                        Serie2 = Grafico2.SeriesCollection.NewSeries; Serie2.XValues = Sheet.Range(sprintf('E%d:E%d', filasCiclo(1) + 1, filasCiclo(end) + 1));
-                                        Serie2.Values = Sheet.Range(sprintf('B%d:B%d', filasCiclo(1) + 1, filasCiclo(end) + 1)); Serie2.Name = sprintf('Cycle %d', c); Serie2.Format.Line.Weight = 1.0;
+                                        Serie2 = Grafico2.SeriesCollection.NewSeries; 
+                                        Serie2.XValues = SheetData.Range(sprintf('F%d:F%d', filasCiclo(1) + 1, filasCiclo(end) + 1));
+                                        Serie2.Values = SheetData.Range(sprintf('B%d:B%d', filasCiclo(1) + 1, filasCiclo(end) + 1)); 
+                                        Serie2.Name = sprintf('Cycle %d', c); Serie2.Format.Line.Weight = 1.0;
                                     end
                                 end
                                 Grafico2.HasTitle = true; Grafico2.ChartTitle.Text = 'Hysteresis: Position vs Resistance'; Grafico2.HasLegend = true; 
                                 Grafico2.Axes(1).HasTitle = true; Grafico2.Axes(1).AxisTitle.Text = 'Average Resistance (Ohms)'; Grafico2.Axes(1).MinimumScale = escalaMinRes; Grafico2.Axes(1).MaximumScale = escalaMaxRes;
                                 Grafico2.Axes(2).HasTitle = true; Grafico2.Axes(2).AxisTitle.Text = 'Position (Steps)';
-                                Grafico2.Location(2, Sheet.Name); Shape2 = Sheet.Shapes.Item(Sheet.Shapes.Count);
+                                Grafico2.Location(2, SheetData.Name); Shape2 = SheetData.Shapes.Item(SheetData.Shapes.Count);
                                 Shape2.Width = 600; Shape2.Height = 350; Shape2.Top = Shape1.Top + Shape1.Height + 20; Shape2.Left = 550;
                                 
                                 % Gráfico 3
@@ -883,14 +911,16 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
                                 for c = 1:ciclosEjecutados
                                     filasCiclo = find(datosCompletos(:, 1) == c);
                                     if ~isempty(filasCiclo)
-                                        Serie3 = Grafico3.SeriesCollection.NewSeries; Serie3.XValues = Sheet.Range(sprintf('D%d:D%d', filasCiclo(1) + 1, filasCiclo(end) + 1));
-                                        Serie3.Values = Sheet.Range(sprintf('G%d:G%d', filasCiclo(1) + 1, filasCiclo(end) + 1)); Serie3.Name = sprintf('Cycle %d', c); Serie3.MarkerStyle = 8; Serie3.MarkerSize = 3;  
+                                        Serie3 = Grafico3.SeriesCollection.NewSeries; 
+                                        Serie3.XValues = SheetData.Range(sprintf('D%d:D%d', filasCiclo(1) + 1, filasCiclo(end) + 1));
+                                        Serie3.Values = SheetData.Range(sprintf('H%d:H%d', filasCiclo(1) + 1, filasCiclo(end) + 1)); 
+                                        Serie3.Name = sprintf('Cycle %d', c); Serie3.MarkerStyle = 8; Serie3.MarkerSize = 3;  
                                     end
                                 end
                                 Grafico3.HasTitle = true; Grafico3.ChartTitle.Text = 'Sensitivity: Gauge Factor vs Time'; Grafico3.HasLegend = true; 
                                 Grafico3.Axes(1).HasTitle = true; Grafico3.Axes(1).AxisTitle.Text = 'Time (s)'; Grafico3.Axes(1).MinimumScale = 0; Grafico3.Axes(1).MaximumScale = escalaMaxTiempo;
                                 Grafico3.Axes(2).HasTitle = true; Grafico3.Axes(2).AxisTitle.Text = 'Gauge Factor (GF)';
-                                Grafico3.Location(2, Sheet.Name); Shape3 = Sheet.Shapes.Item(Sheet.Shapes.Count);
+                                Grafico3.Location(2, SheetData.Name); Shape3 = SheetData.Shapes.Item(SheetData.Shapes.Count);
                                 Shape3.Width = 600; Shape3.Height = 350; Shape3.Top = Shape2.Top + Shape2.Height + 20; Shape3.Left = 550;
                                 
                                 Workbook.Save; Workbook.Close; Excel.Quit; delete(Excel);
@@ -1213,14 +1243,6 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
             app.MonitorTextArea.Value = [app.MonitorTextArea.Value; msg];
             scroll(app.MonitorTextArea, 'bottom');
         end
-
-        % Button down function: FlexBenchAppUIFigure
-        function FlexBenchAppUIFigureButtonDown(app, event)
-            if isvalid(app.DialogoParametros)
-                delete(app.DialogoParametros); 
-            end
-            delete(app);
-        end
     end
 
     % Component initialization
@@ -1237,7 +1259,6 @@ classdef FlexBenchApp_exported < matlab.apps.AppBase
             app.FlexBenchAppUIFigure.Color = [0.9608 0.9608 0.9608];
             app.FlexBenchAppUIFigure.Position = [0 0 1540 845];
             app.FlexBenchAppUIFigure.Name = 'FlexBench App';
-            app.FlexBenchAppUIFigure.ButtonDownFcn = createCallbackFcn(app, @FlexBenchAppUIFigureButtonDown, true);
             app.FlexBenchAppUIFigure.WindowState = 'maximized';
 
             % Create MonitorTextArea
