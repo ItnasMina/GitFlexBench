@@ -1,273 +1,367 @@
 # ==============================================================================
-# SCRIPT R: ANÁLISIS DE SENSORES PIEZORESISTIVOS (ESTABILIDAD VS SENSIBILIDAD)
+# 1. SETUP Y LECTURA MASIVA DE ARCHIVOS
 # ==============================================================================
+```{r 01_CONFIGURACION_Y_LECTURA}
 
-```{r}
-# ------------------------------------------------------------------------------
-# 1. CARGA DE LIBRERÍAS
-# ------------------------------------------------------------------------------
-
+# Cargar librerías necesarias
 library(tidyverse)
 library(readxl)
-library(fs)
-```
-
-```{r}
-# ------------------------------------------------------------------------------
-# 2. FUNCIÓN DE EXTRACCIÓN Y FUSIÓN DE DATOS
-# ------------------------------------------------------------------------------
-# Esta función lee un archivo Excel individual, extrae los metadatos y el resumen
-# por ciclo, y los combina en una única tabla limpia.
-procesar_ensayo_resumen <- function(ruta_archivo) {
-  
-  # A. Leer la información de la probeta
-  info <- read_excel(ruta_archivo, sheet = "Specimen_Info")
-  
-  # Pivotar de formato largo (Atributo-Valor) a ancho (una fila con columnas)
-  info_wide <- info %>%
-    pivot_wider(names_from = Attribute, values_from = Value) %>%
-    mutate(
-      # Limpiamos textos para que R los entienda como números
-      Length_cm = as.numeric(gsub(" cm", "", Length)),
-      Thickness_mm = as.numeric(`Thickness (mm)`),
-      Width_cm = as.numeric(`Width (cm)`),
-      Archivo = basename(ruta_archivo) # Aquí creamos la variable
-    ) %>%
-    select(`Specimen Name`, Infill, Length_cm, Thickness_mm, Width_cm, Archivo)
-  
-  # B. Leer el resumen de ciclos calculado por MATLAB
-  resumen_ciclos <- read_excel(ruta_archivo, sheet = "Cycle_Summary")
-  
-  # C. Fusionar: Repetir la info de la probeta para todos los ciclos de ese archivo
-  datos_combinados <- bind_cols(info_wide, resumen_ciclos)
-  
-  return(datos_combinados)
-}
-```
-
-```{r}
-# ------------------------------------------------------------------------------
-# 3. IMPORTACIÓN MASIVA (Ruta Dinámica)
-# ------------------------------------------------------------------------------
-# Cargar la librería para leer el entorno de RStudio
+library(stringr)
 library(rstudioapi)
+library(effectsize)
 
-# 1. RStudio averigua dinámicamente dónde está guardado este script exacto
-ruta_script <- dirname(rstudioapi::getActiveDocumentContext()$path)
+# SELECCIÓN INTERACTIVA DEL DIRECTORIO
+ruta_carpeta <- selectDirectory(caption = "Selecciona la carpeta con los archivos Excel")
 
-# 2. Construimos la ruta a la carpeta "Datos" combinando ambas partes
-carpeta_datos <- file.path(ruta_script, "Datos") 
+if (is.null(ruta_carpeta)) {
+  stop("Operación cancelada: No se seleccionó ninguna carpeta.")
+} else {
+  cat("Carpeta seleccionada:", ruta_carpeta, "\n")
+}
 
-# 3. Buscamos los Excel
-archivos_excel <- dir_ls(carpeta_datos, glob = "*.xlsx")
+# LECTURA DE ARCHIVOS
+lista_archivos <- list.files(path = ruta_carpeta, pattern = "\\.xlsx$", full.names = TRUE)
+cat("Se han encontrado", length(lista_archivos), "archivos Excel.\n")
 
-# 4. (¡LA LÍNEA QUE FALTABA!) Leer todos los Excel y juntarlos en la variable
-df_todos_ciclos <- map_dfr(archivos_excel, procesar_ensayo_resumen)
+importar_y_etiquetar <- function(ruta_archivo) {
+  tryCatch({
+    datos_ciclos <- read_excel(ruta_archivo, sheet = "Cycle_Summary")
+    nombre_base <- basename(ruta_archivo)
+    partes <- str_split(nombre_base, "_")[[1]]
+    
+    datos_ciclos <- datos_ciclos %>%
+      mutate(
+        Archivo = nombre_base,
+        Relleno = partes[2],
+        Grosor = partes[3],
+        Longitud = partes[4],
+        Test_Num = partes[5]
+      )
+    return(datos_ciclos)
+  }, error = function(e) {
+    cat("Error al leer el archivo:", basename(ruta_archivo), "\n")
+    return(NULL) 
+  })
+}
+
+df_total <- map_dfr(lista_archivos, importar_y_etiquetar)
+cat("¡Importación finalizada con éxito!\n")
+
+```
+# ==============================================================================
+# 2. EFECTO MULLINS Y PRE-ACONDICIONAMIENTO
+# ==============================================================================
+```{r Mullins y pre-acondicionamineto, fig.width=10, fig.height=5, dpi=800}
+# Preparar datos crudos para ver el Efecto Mullins
+df_mullins_all <- df_total %>%
+  mutate(
+    Probeta_ID = paste(Relleno, Grosor, Longitud, sep = "_"),
+    Patron_Base = str_remove(Relleno, "[12]") 
+  )
+
+# Generar gráficas del Efecto Mullins (Todos los tests)
+patrones <- unique(df_mullins_all$Patron_Base)
+for (p in patrones) {
+  df_filtrado <- df_mullins_all %>% filter(Patron_Base == p)
+  grafica <- ggplot(df_filtrado, aes(x = Cycle, y = GF_Stabilized, color = Test_Num)) +
+    geom_line(linewidth = 0.6, alpha = 0.8) +
+    facet_wrap(~ Probeta_ID, ncol = 4, scales = "free_y") + 
+    labs(
+      title = paste("Piezoresistive Accommodation - Pattern:", p),
+      x = "Cycle (1 to 50)", 
+      y = "Stabilized Gauge Factor", 
+      color = "Test"
+    ) +
+    theme_minimal() + scale_color_brewer(palette = "Set1")
+  print(grafica)
+}
+
+# CREACIÓN DE LA BASE DE DATOS ESTABILIZADA (Sin Test 1)
+df_clean <- df_total %>%
+  filter(Test_Num %in% c("T2","T3", "T4", "T5")) %>%
+  mutate(
+    Patron = str_remove(Relleno, "[12]"),
+    Hyst_Abs = abs(Hysteresis_Area)
+  )
+
+# Base de datos exclusiva para topologías (sin el relleno macizo "f")
+df_topologico <- df_clean %>% filter(Patron != "f")
 ```
 
-```{r}
-# ------------------------------------------------------------------------------
-# 4. EXTRACCIÓN DE MÉTRICAS AVANZADAS (MODELO EXPONENCIAL Y AGREGACIÓN)
-# ------------------------------------------------------------------------------
+# ==============================================================================
+# 3. ANÁLISIS DE LA LINEALIDAD (R2)
+# ==============================================================================
+```{r Linealidad}
+cat("\n=== RESULTADOS ANOVA: LINEALIDAD (R2) ===\n")
+modelo_lin <- aov(Linearity_R2 ~ Patron * Grosor * Longitud, data = df_topologico)
+print(summary(modelo_lin))
+cat("\n--- Tamaño del Efecto ---\n")
+print(eta_squared(modelo_lin, partial = TRUE))
 
-# PASO 1: Analizar la curva de cada Test individualmente
-df_tests <- df_todos_ciclos %>%
-  # Agrupamos por archivo para que no se mezclen ensayos de distintos días/momentos
-  group_by(Archivo, `Specimen Name`, Infill, Length_cm, Thickness_mm) %>%
-  # 'nest()' empaqueta todos los ciclos de ese test en una mini-tabla interna
-  nest() %>%
-  mutate(
-    # A. Ajuste del modelo exponencial para el Drift
-    modelo_drift = map(data, ~ {
-      tryCatch({
-        nls(Drift_R0 ~ R_inf + (R_1 - R_inf) * exp(-k * Cycle), 
-            data = .x, 
-            # Valores semilla lógicos basados en el propio ensayo (sin importar cuántos ciclos tenga)
-            start = list(R_inf = min(.x$Drift_R0, na.rm = TRUE), 
-                         R_1 = max(.x$Drift_R0, na.rm = TRUE), 
-                         k = 0.2))
-      }, error = function(e) NULL) # Si falla (ej. datos planos), devuelve NULL de forma segura
-    }),
-    
-    # B. Extraer la Resistencia en Régimen Permanente (R_inf)
-    Drift_Regimen_Permanente = map2_dbl(modelo_drift, data, ~ {
-      if(is.null(.x)) {
-        # Si no hubo curva, cogemos la media de los últimos 5 ciclos del test (sea cual sea el total)
-        return(mean(tail(.y$Drift_R0, 5), na.rm = TRUE)) 
-      } else {
-        return(coef(.x)["R_inf"])
-      }
-    }),
-    
-    # C. Extraer los Ciclos necesarios para estabilizar al 95%
-    Ciclos_Para_Estabilizar = map_dbl(modelo_drift, ~ {
-      if(is.null(.x)) return(0) # Si es plano, ya estaba estabilizado (0 ciclos)
-      k_val <- coef(.x)["k"]
-      if(k_val > 0) return(-log(0.05) / k_val) else return(NA)
-    }),
-    
-    # D. Otras métricas clásicas excluyendo el ciclo 1 (Mullins)
-    Test_GF_Medio = map_dbl(data, ~ mean(filter(.x, Cycle > 1)$GF_Max, na.rm = TRUE)),
-    Test_GF_CV_Porc = map_dbl(data, ~ {
-      datos_limpios <- filter(.x, Cycle > 1)
-      (sd(datos_limpios$GF_Max, na.rm = TRUE) / mean(datos_limpios$GF_Max, na.rm = TRUE)) * 100
-    }),
-    Test_Linearity_R2 = map_dbl(data, ~ mean(filter(.x, Cycle > 1)$Linearity_R2, na.rm = TRUE)),
-    Test_Hysteresis = map_dbl(data, ~ mean(filter(.x, Cycle > 1)$Hysteresis_Area, na.rm = TRUE))
-  ) %>%
-  # Limpiamos las columnas temporales anidadas
-  select(-data, -modelo_drift)
+# Gráfica de Cajas: Linealidad según Patrón
+grafica_linealidad <- ggplot(df_topologico, aes(x = Patron, y = Linearity_R2, fill = Patron)) +
+  geom_boxplot(alpha = 0.8, outlier.shape = NA) +
+  geom_jitter(width = 0.2, size = 0.8, alpha = 0.4, color = "darkgray") +
+  facet_grid(Grosor ~ Longitud) +
+  labs(
+    title = "Effect of Topology on Linearity",
+    x = "Pattern", 
+    y = "Linearity (R^2)"
+  ) +
+  theme_minimal() + scale_fill_brewer(palette = "Set1")
 
-# PASO 2: Calcular métricas globales por PROBETA
-df_probetas <- df_tests %>%
-  group_by(`Specimen Name`, Infill, Length_cm, Thickness_mm) %>%
+print(grafica_linealidad)
+
+# Tabla de estadísticos: Linealidad
+tabla_lin <- df_topologico %>%
+  group_by(Grosor, Longitud, Patron) %>%
   summarise(
-    GF_Medio = mean(Test_GF_Medio, na.rm = TRUE),
-    GF_CV_Porc = mean(Test_GF_CV_Porc, na.rm = TRUE),
-    
-    # Nuestras nuevas métricas de estabilización:
-    Resistencia_Base_Real = mean(Drift_Regimen_Permanente, na.rm = TRUE),
-    Ciclos_Estabilizacion_Medios = mean(Ciclos_Para_Estabilizar, na.rm = TRUE),
-    
-    Linearity_R2_Medio = mean(Test_Linearity_R2, na.rm = TRUE),
-    Hysteresis_Media = mean(Test_Hysteresis, na.rm = TRUE),
+    Q1 = round(quantile(Linearity_R2, 0.25, na.rm = TRUE), 4),
+    Mediana = round(median(Linearity_R2, na.rm = TRUE), 4),
+    Q3 = round(quantile(Linearity_R2, 0.75, na.rm = TRUE), 4),
     .groups = "drop"
   )
+cat("\n--- TABLA DE CUARTILES: LINEALIDAD (R^2) ---\n")
+print(as.data.frame(tabla_lin))
 ```
+# ==============================================================================
+# 4. ANÁLISIS DE LA SENSIBILIDAD (Gauge Factor)
+# ==============================================================================
+```{r Sensibilidad}
+cat("\n=== RESULTADOS ANOVA: GAUGE FACTOR ===\n")
+modelo_gf <- aov(GF_Stabilized ~ Patron * Grosor * Longitud, data = df_topologico)
+print(summary(modelo_gf))
+cat("\n--- Tamaño del Efecto ---\n")
+print(eta_squared(modelo_gf, partial = TRUE))
 
-```{r}
-# ------------------------------------------------------------------------------
-# 5. ANÁLISIS ESTADÍSTICO Y TABLA RESUMEN
-# ------------------------------------------------------------------------------
-
-# A. SIEMPRE generamos y mostramos la tabla resumen (independientemente del ANOVA)
-df_estetico <- df_probetas %>% mutate(across(where(is.numeric), ~ round(., 3)))
-if (!requireNamespace("knitr", quietly = TRUE)) install.packages("knitr")
-cat("\n")
-print(knitr::kable(df_estetico, align = "c", caption = "Métricas Globales de los Sensores"))
-View(df_estetico, title = "Tabla Resumen Sensores")
-
-# B. Intentamos calcular el ANOVA si hay más de 1 probeta
-if (nrow(df_probetas) > 1) {
-  cat("\n--- RESULTADOS ANOVA ---\n")
-  tryCatch({
-    # Modelos multifactoriales (Eliminada la variable Length_cm)
-    modelo_inestabilidad <- aov(GF_CV_Porc ~ Infill * as.factor(Thickness_mm), data = df_probetas)
-    cat("\n>> INFLUENCIAS SOBRE LA INESTABILIDAD (CV%):\n")
-    print(summary(modelo_inestabilidad))
-    
-    modelo_linealidad <- aov(Linearity_R2_Medio ~ Infill * as.factor(Thickness_mm), data = df_probetas)
-    cat("\n>> INFLUENCIAS SOBRE LA LINEALIDAD (R^2):\n")
-    print(summary(modelo_linealidad))
-    
-  }, error = function(e) {
-    cat("[AVISO ESTADÍSTICO] El ANOVA no se ha podido calcular.\n")
-    cat("Motivo: Estás intentando evaluar el impacto de variables que aún no tienen suficientes niveles.\n")
-    cat("Solución: Ensaya probetas con distintos grosores o rellenos para que R pueda comparar.\n")
-  })
-} else {
-  cat("\n[AVISO] Solo hay 1 probeta cargada. Se necesitan más para el ANOVA.\n")
-}
-```
-
-```{r}
-# ------------------------------------------------------------------------------
-# 6. VISUALIZACIÓN: FRENTE DE PARETO (ESTABILIDAD VS SENSIBILIDAD)
-# ------------------------------------------------------------------------------
-grafica_pareto <- ggplot(df_probetas, 
-                         aes(x = GF_CV_Porc, 
-                             y = GF_Medio, 
-                             color = Infill, 
-                             shape = as.factor(Thickness_mm),
-                             size = as.factor(Length_cm))) +
-  geom_point(alpha = 0.8, size = 4) +
-  geom_text(aes(label = `Specimen Name`), vjust = -1, size = 3, show.legend = FALSE) +
-  scale_size_discrete(name = "Largo (cm)") +
+# Gráfica: Gauge Factor según Patrón segmentado por Grosor y Longitud
+grafica_gf_top <- ggplot(df_topologico, aes(x = Patron, y = GF_Stabilized, fill = Patron)) +
+  geom_boxplot(alpha = 0.8, outlier.shape = NA) +
+  geom_jitter(width = 0.2, size = 0.8, alpha = 0.4, color = "darkgray") +
+  facet_grid(Grosor ~ Longitud) + 
   labs(
-    title = "Optimización del Sensor: Sensibilidad vs Estabilidad",
-    subtitle = "Ubicación del sensor en el frente de optimización",
-    x = "Inestabilidad (CV del Gauge Factor en %)",
-    y = "Sensibilidad (Gauge Factor Medio)",
-    color = "Infill",
-    shape = "Grosor (mm)"
+    title = "Effect of Topology and Geometry on Sensitivity", 
+    x = "Pattern", 
+    y = "Stabilized Gauge Factor"
   ) +
-  theme_minimal(base_size = 14) +
-  theme(legend.position = "right", plot.title = element_text(face = "bold"))
+  theme_minimal() + scale_fill_brewer(palette = "Set1")
+print(grafica_gf_top)
 
-# Añadir líneas divisorias solo si hay múltiples probetas para calcular medianas
-if (nrow(df_probetas) > 1) {
-  grafica_pareto <- grafica_pareto +
-    geom_vline(aes(xintercept = median(GF_CV_Porc, na.rm = TRUE)), linetype = "dashed", color = "gray50") +
-    geom_hline(aes(yintercept = median(GF_Medio, na.rm = TRUE)), linetype = "dashed", color = "gray50")
-}
-
-print(grafica_pareto)
+# Tabla de estadísticos: Sensibilidad
+tabla_gf <- df_topologico %>%
+  group_by(Grosor, Longitud, Patron) %>% # Añadida 'Longitud' para coincidir con la gráfica
+  summarise(
+    Q1 = round(quantile(GF_Stabilized, 0.25, na.rm = TRUE), 2),
+    Mediana = round(median(GF_Stabilized, na.rm = TRUE), 2),
+    Q3 = round(quantile(GF_Stabilized, 0.75, na.rm = TRUE), 2),
+    .groups = "drop"
+  )
+cat("\n--- TABLA DE CUARTILES: SENSIBILIDAD (GF) ---\n")
+print(as.data.frame(tabla_gf))
 ```
 
-```{r}
-# ------------------------------------------------------------------------------
-# 7. RECAPITULACIÓN DEL PROGRESO DE LA CAMPAÑA DE ENSAYOS (AJUSTADO A 40)
-# ------------------------------------------------------------------------------
+# ==============================================================================
+# 5. ANÁLISIS DE LA HISTÉRESIS (Energía Disipada)
+# ==============================================================================
+```{r Histéresis}
+cat("\n=== RESULTADOS ANOVA: HISTÉRESIS ===\n")
+modelo_hist <- aov(Hyst_Abs ~ Patron * Grosor * Longitud, data = df_topologico)
+print(summary(modelo_hist))
+cat("\n--- Tamaño del Efecto ---\n")
+print(eta_squared(modelo_hist, partial = TRUE))
 
-# 1. Agrupar por probeta física y contar archivos ÚNICOS (Tests reales)
-resumen_probetas <- df_todos_ciclos %>% 
-  group_by(`Specimen Name`, Length_cm, Thickness_mm, Infill) %>%
-  summarise(Num_Tests = n_distinct(Archivo), .groups = 'drop')
+# Gráfica: Histéresis según Patrón segmentado por Grosor y Longitud
+grafica_hist_top <- ggplot(df_topologico, aes(x = Patron, y = Hyst_Abs, fill = Patron)) +
+  geom_boxplot(alpha = 0.8, outlier.shape = NA) +
+  geom_jitter(width = 0.2, size = 0.8, alpha = 0.4, color = "darkgray") +
+  facet_grid(Grosor ~ Longitud) +
+  labs(
+    title = "Effect of Topology and Geometry on Hysteresis", 
+    x = "Pattern", 
+    y = "Hysteresis Area"
+  ) +
+  theme_minimal() + scale_fill_brewer(palette = "Set1")
+print(grafica_hist_top)
 
-# 2. Separar las probetas terminadas (5 tests) de las que están a medias
-probetas_completas <- resumen_probetas %>% filter(Num_Tests == 5)
-probetas_incompletas <- resumen_probetas %>% filter(Num_Tests < 5)
+# Tabla de estadísticos: Histéresis
+tabla_hist <- df_topologico %>%
+  group_by(Grosor, Longitud, Patron) %>% 
+  summarise(
+    Q1 = round(quantile(Hyst_Abs, 0.25, na.rm = TRUE), 6),
+    Mediana = round(median(Hyst_Abs, na.rm = TRUE), 6),
+    Q3 = round(quantile(Hyst_Abs, 0.75, na.rm = TRUE), 6),
+    .groups = "drop"
+  )
+cat("\n--- TABLA DE CUARTILES: HISTÉRESIS ---\n")
+print(as.data.frame(tabla_hist))
+```
 
-total_actual <- nrow(probetas_completas)
+# ==============================================================================
+# 6. EFECTO DE LA DENSIDAD Y CANTIDAD DE MATERIAL (15% vs 100%)
+# ==============================================================================
+```{r Densidad}
+# Preparación de datos
+df_densidad <- df_clean %>%
+  filter(Patron %in% c("r", "f")) %>%
+  mutate(
+    Densidad = ifelse(Patron == "f", "100% Solid", "15% Infill"), 
+    Geometria = paste(Grosor, "-", Longitud)
+  )
 
-# 3. Generación automática y dinámica de categorías
-conteo_longitud <- probetas_completas %>% count(Length_cm)
-conteo_grosor   <- probetas_completas %>% count(Thickness_mm)
-conteo_infill   <- probetas_completas %>% count(Infill)
+# 1. Gráfica Linealidad
+grafica_lin_densidad <- ggplot(df_densidad, aes(x = Geometria, y = Linearity_R2, fill = Geometria, alpha = Densidad, group = interaction(Geometria, Densidad))) +
+  geom_boxplot(outlier.shape = NA, position = position_dodge(0.8)) +
+  labs(title = "Impact of Density on Linearity", x = "Geometry (Thickness - Length)", y = "Linearity (R²)", alpha = "Density") +
+  theme_minimal() + 
+  scale_alpha_manual(values = c("15% Infill" = 0.4, "100% Solid" = 0.9)) +
+  guides(fill = "none", alpha = guide_legend(override.aes = list(fill = "gray30", color = "black"))) +
+  coord_cartesian(ylim = c(0.7, 1.0)) + # Ajusta estos valores si alguna caja se recorta
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"), legend.position = "right")
 
-# 4. Impresión por pantalla del sumario principal
-cat("========================================\n")
-# ¡Modificado aquí el total esperado a 40!
-cat(sprintf("PROBETAS COMPLETADAS: %d/40\n", total_actual))
-cat("========================================\n")
+# 2. Gráfica Sensibilidad
+grafica_gf_densidad <- ggplot(df_densidad, aes(x = Geometria, y = GF_Stabilized, fill = Geometria, alpha = Densidad, group = interaction(Geometria, Densidad))) +
+  geom_boxplot(outlier.shape = NA, position = position_dodge(0.8)) +
+  labs(title = "Impact of Density on Sensitivity", x = "Geometry (Thickness - Length)", y = "Stabilized Gauge Factor", alpha = "Density") +
+  theme_minimal() + 
+  scale_alpha_manual(values = c("15% Infill" = 0.4, "100% Solid" = 0.9)) +
+  guides(fill = "none", alpha = guide_legend(override.aes = list(fill = "gray30", color = "black"))) +
+  coord_cartesian(ylim = c(2, 8)) + # Ajusta estos valores si alguna caja se recorta
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"), legend.position = "right")
 
-# --- BLOQUE DINÁMICO DE LONGITUD ---
-cat("* Longitudes:\n")
-if(nrow(conteo_longitud) > 0) {
-  for (i in 1:nrow(conteo_longitud)) {
-    cat(sprintf("  - %g cm: %d\n", conteo_longitud$Length_cm[i], conteo_longitud$n[i]))
-  }
-} else { cat("  (Sin datos)\n") }
-cat("\n")
+# 3. Gráfica Histéresis
+grafica_hist_densidad <- ggplot(df_densidad, aes(x = Geometria, y = Hyst_Abs, fill = Geometria, alpha = Densidad, group = interaction(Geometria, Densidad))) +
+  geom_boxplot(outlier.shape = NA, position = position_dodge(0.8)) +
+  labs(title = "Impact of Density on Hysteresis", x = "Geometry (Thickness - Length)", y = "Hysteresis Area", alpha = "Density") +
+  theme_minimal() + 
+  scale_alpha_manual(values = c("15% Infill" = 0.4, "100% Solid" = 0.9)) +
+  guides(fill = "none", alpha = guide_legend(override.aes = list(fill = "gray30", color = "black"))) +
+  coord_cartesian(ylim = c(0, 5e-5)) + # Escala ajustada al orden de 10^-5
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"), legend.position = "right")
 
-# --- BLOQUE DINÁMICO DE GROSOR ---
-cat("* Grosores:\n")
-if(nrow(conteo_grosor) > 0) {
-  for (i in 1:nrow(conteo_grosor)) {
-    cat(sprintf("  - %g mm: %d\n", conteo_grosor$Thickness_mm[i], conteo_grosor$n[i]))
-  }
-} else { cat("  (Sin datos)\n") }
-cat("\n")
+print(grafica_lin_densidad)
+print(grafica_gf_densidad)
+print(grafica_hist_densidad)
+```
 
-# --- BLOQUE DINÁMICO DE INFILL ---
-cat("* Infill (Rellenos):\n")
-if(nrow(conteo_infill) > 0) {
-  for (i in 1:nrow(conteo_infill)) {
-    cat(sprintf("  - %s: %d\n", conteo_infill$Infill[i], conteo_infill$n[i]))
-  }
-} else { cat("  (Sin datos)\n") }
-cat("========================================\n")
 
-# 5. Listar las probetas incompletas al final
-if (nrow(probetas_incompletas) > 0) {
-  cat("\n⚠️ PROBETAS INCOMPLETAS (Pendientes de acabar ensayos):\n")
-  for (i in 1:nrow(probetas_incompletas)) {
-    cat(sprintf("  - Probeta '%s': %d/5 tests\n", 
-                probetas_incompletas$`Specimen Name`[i], 
-                probetas_incompletas$Num_Tests[i]))
-  }
-} else {
-  cat("\n✅ No hay probetas a medias. Todas las empezadas están terminadas.\n")
+
+
+# ==============================================================================
+# 7. EVALUACIÓN DE LA REPETIBILIDAD
+# ==============================================================================
+```{r Repetibilidad}
+# Función auxiliar para procesar los datos de las probetas gemelas (Probeta 1 vs Probeta 2)
+procesar_repetibilidad <- function(df, variable_col) {
+  df %>%
+    mutate(
+      Gemela = str_extract(Relleno, "[12]"),
+      Patron = str_remove(Relleno, "[12]")
+    ) %>%
+    group_by(Patron, Grosor, Longitud, Gemela) %>%
+    summarise(Valor_Medio = mean({{ variable_col }}, na.rm = TRUE), .groups = "drop") %>%
+    pivot_wider(names_from = Gemela, values_from = Valor_Medio, names_prefix = "Probeta_") %>%
+    drop_na() %>%
+    rowwise() %>%
+    mutate(
+      Media_Par = (Probeta_1 + Probeta_2) / 2,
+      Desviacion = sd(c(Probeta_1, Probeta_2)),
+      CV_Porcentual = (Desviacion / Media_Par) * 100,
+      Geometria = paste(Grosor, "-", Longitud)
+    ) %>% ungroup()
 }
-cat("========================================\n")
+
+# 1. Cálculo de métricas y CV para Gauge Factor
+df_rep_gf <- procesar_repetibilidad(df_clean, GF_Stabilized)
+cat("\n=== REPETIBILIDAD: GAUGE FACTOR ===\n")
+cat("Coeficiente de Variación (CV) Medio:", round(mean(df_rep_gf$CV_Porcentual, na.rm = TRUE), 2), "%\n")
+
+# 2. Cálculo de métricas y CV para Linealidad (R2)
+df_rep_lin <- procesar_repetibilidad(df_clean, Linearity_R2)
+cat("\n=== REPETIBILIDAD: LINEALIDAD (R2) ===\n")
+cat("Coeficiente de Variación (CV) Medio:", round(mean(df_rep_lin$CV_Porcentual, na.rm = TRUE), 2), "%\n")
+
+# 3. Cálculo de métricas y CV para Histéresis
+df_rep_hist <- procesar_repetibilidad(df_clean, Hyst_Abs)
+cat("\n=== REPETIBILIDAD: HISTÉRESIS ===\n")
+cat("Coeficiente de Variación (CV) Medio:", round(mean(df_rep_hist$CV_Porcentual, na.rm = TRUE), 2), "%\n")
+
+# Función para generar gráficos de concordancia unificados
+generar_grafica_repetibilidad <- function(df, titulo, etiqueta_y) {
+  min_val <- min(c(df$Probeta_1, df$Probeta_2), na.rm = TRUE)
+  max_val <- max(c(df$Probeta_1, df$Probeta_2), na.rm = TRUE)
+  margen <- (max_val - min_val) * 0.05
+  if (is.na(margen) || margen == 0) margen <- 0.05
+  
+  ggplot(df, aes(x = Probeta_1, y = Probeta_2, color = Patron, shape = Geometria)) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "darkgray", linewidth = 1) +
+    geom_point(size = 4, alpha = 0.8) +
+    labs(
+      title = titulo, 
+      x = paste("Specimen 1 -", etiqueta_y), 
+      y = paste("Specimen 2 -", etiqueta_y), 
+      color = "Topology",
+      shape = "Geometry"
+    ) +
+    scale_x_continuous(limits = c(min_val - margen, max_val + margen)) +
+    scale_y_continuous(limits = c(min_val - margen, max_val + margen)) +
+    coord_equal() + 
+    theme_minimal() + 
+    scale_color_brewer(palette = "Set1") +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold")
+    )
+}
+
+# Generar las tres gráficas solicitadas
+grafica_rep_gf <- generar_grafica_repetibilidad(df_rep_gf, "Repeatability: Gauge Factor (GF)", "Gauge Factor (GF)")
+grafica_rep_lin <- generar_grafica_repetibilidad(df_rep_lin, "Repeatability: Linearity (R²)", "Linearity (R²)")
+grafica_rep_hist <- generar_grafica_repetibilidad(df_rep_hist, "Repeatability: Hysteresis Area", "Hysteresis Area")
+
+# Mostrar las gráficas en consola / panel de plots
+print(grafica_rep_gf)
+print(grafica_rep_lin)
+print(grafica_rep_hist)
+```
+# ==============================================================================
+# 8. DEBUG: EVOLUCIÓN TEMPORAL DE PROBETAS ESPECÍFICAS
+# ==============================================================================
+```{r Debug}
+# 1. Filtramos las dos probetas de 1.5mm y 15cm (la 'f1' y la 'r1' para comparar)
+df_debug <- df_total %>%
+  mutate(Identificador = paste(Relleno, Grosor, Longitud, sep = "_")) %>%
+  filter(Identificador %in% c("f1_1.5mm_15cm", "r1_1.5mm_15cm")) %>%
+  # Ordenamos y creamos el contador continuo
+  arrange(Identificador, Test_Num, Cycle) %>%
+  group_by(Identificador) %>%
+  mutate(Ciclo_Continuo = row_number()) %>%
+  ungroup()
+
+# 2. Comprobación de seguridad
+if(nrow(df_debug) == 0) {
+  stop("⚠️ ERROR: No se ha encontrado ninguna probeta con esos nombres.")
+} else {
+  cat("Comparativa lista. Filas a dibujar:", nrow(df_debug), "\n")
+}
+
+# 3. Gráfica de Debug: Resistencia Base (Drift_R0) a lo largo del tiempo
+grafica_debug <- ggplot(df_debug, aes(x = Ciclo_Continuo, y = Drift_R0, color = Test_Num)) +
+  geom_point(alpha = 0.7, size = 1.5) +
+  geom_line(alpha = 0.4) +
+  # Usamos facet_wrap para poner una gráfica al lado de la otra
+  facet_wrap(~ Identificador, scales = "free_y") +
+  labs(
+    title = "Debug de Datos: Evolución de la Resistencia (Drift_R0)",
+    subtitle = "Comparativa entre Relleno Macizo (f) y Rectilíneo (r)",
+    x = "Ciclo Global Acumulado (1 a 250+)",
+    y = "Resistencia Eléctrica Base (Ohmios)", 
+    color = "Test"
+  ) +
+  theme_minimal() +
+  scale_color_brewer(palette = "Set1") +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5)
+  )
+
+print(grafica_debug)
 ```
