@@ -10,6 +10,9 @@ library(stringr)
 library(rstudioapi)
 library(effectsize)
 
+# Definir paleta de colores consistente para los Patrones
+colores_patron <- c("+" = "#E41A1C", "r" = "#377EB8", "G" = "#4DAF4A", "O" = "#984EA3", "f" = "#FF7F00")
+
 # SELECCIÓN INTERACTIVA DEL DIRECTORIO
 ruta_carpeta <- selectDirectory(caption = "Selecciona la carpeta con los archivos Excel")
 
@@ -67,10 +70,10 @@ for (p in patrones) {
     geom_line(linewidth = 0.6, alpha = 0.8) +
     facet_wrap(~ Probeta_ID, ncol = 4, scales = "free_y") + 
     labs(
-      title = paste("Piezoresistive Accommodation - Pattern:", p),
-      x = "Cycle (1 to 50)", 
-      y = "Stabilized Gauge Factor", 
-      color = "Test"
+      title = paste("Acomodación Piezoresistiva - Patrón:", p),
+      x = "Ciclo (1 a 50)", 
+      y = "Factor de Galga Estabilizado", 
+      color = "Ensayo"
     ) +
     theme_minimal() + scale_color_brewer(palette = "Set1")
   print(grafica)
@@ -104,11 +107,11 @@ grafica_linealidad <- ggplot(df_topologico, aes(x = Patron, y = Linearity_R2, fi
   geom_jitter(width = 0.2, size = 0.8, alpha = 0.4, color = "darkgray") +
   facet_grid(Grosor ~ Longitud) +
   labs(
-    title = "Effect of Topology on Linearity",
-    x = "Pattern", 
-    y = "Linearity (R^2)"
+    title = "Efecto de la Topología en la Linealidad",
+    x = "Patrón", 
+    y = "Linealidad (R²)"
   ) +
-  theme_minimal() + scale_fill_brewer(palette = "Set1")
+  theme_minimal() + scale_fill_manual(values = colores_patron)
 
 print(grafica_linealidad)
 
@@ -140,11 +143,11 @@ grafica_gf_top <- ggplot(df_topologico, aes(x = Patron, y = GF_Stabilized, fill 
   geom_jitter(width = 0.2, size = 0.8, alpha = 0.4, color = "darkgray") +
   facet_grid(Grosor ~ Longitud) + 
   labs(
-    title = "Effect of Topology and Geometry on Sensitivity", 
-    x = "Pattern", 
-    y = "Stabilized Gauge Factor"
+    title = "Efecto de la Topología y Geometría en la Sensibilidad", 
+    x = "Patrón", 
+    y = "Factor de Galga Estabilizado"
   ) +
-  theme_minimal() + scale_fill_brewer(palette = "Set1")
+  theme_minimal() + scale_fill_manual(values = colores_patron)
 print(grafica_gf_top)
 
 # Tabla de estadísticos: Sensibilidad
@@ -176,11 +179,11 @@ grafica_hist_top <- ggplot(df_topologico, aes(x = Patron, y = Hyst_Abs, fill = P
   geom_jitter(width = 0.2, size = 0.8, alpha = 0.4, color = "darkgray") +
   facet_grid(Grosor ~ Longitud) +
   labs(
-    title = "Effect of Topology and Geometry on Hysteresis", 
-    x = "Pattern", 
-    y = "Hysteresis Area"
+    title = "Efecto de la Topología y Geometría en la Histéresis", 
+    x = "Patrón", 
+    y = "Área de Histéresis"
   ) +
-  theme_minimal() + scale_fill_brewer(palette = "Set1")
+  theme_minimal() + scale_fill_manual(values = colores_patron)
 print(grafica_hist_top)
 
 # Tabla de estadísticos: Histéresis
@@ -211,7 +214,7 @@ df_densidad <- df_clean %>%
 # 1. Gráfica Linealidad
 grafica_lin_densidad <- ggplot(df_densidad, aes(x = Geometria, y = Linearity_R2, fill = Geometria, alpha = Densidad, group = interaction(Geometria, Densidad))) +
   geom_boxplot(outlier.shape = NA, position = position_dodge(0.8)) +
-  labs(title = "Impact of Density on Linearity", x = "Geometry (Thickness - Length)", y = "Linearity (R²)", alpha = "Density") +
+  labs(title = "Impacto de la Densidad en la Linealidad", x = "Geometría (Grosor - Longitud)", y = "Linealidad (R²)", alpha = "Densidad") +
   theme_minimal() + 
   scale_alpha_manual(values = c("15% Infill" = 0.4, "100% Solid" = 0.9)) +
   guides(fill = "none", alpha = guide_legend(override.aes = list(fill = "gray30", color = "black"))) +
@@ -221,7 +224,7 @@ grafica_lin_densidad <- ggplot(df_densidad, aes(x = Geometria, y = Linearity_R2,
 # 2. Gráfica Sensibilidad
 grafica_gf_densidad <- ggplot(df_densidad, aes(x = Geometria, y = GF_Stabilized, fill = Geometria, alpha = Densidad, group = interaction(Geometria, Densidad))) +
   geom_boxplot(outlier.shape = NA, position = position_dodge(0.8)) +
-  labs(title = "Impact of Density on Sensitivity", x = "Geometry (Thickness - Length)", y = "Stabilized Gauge Factor", alpha = "Density") +
+  labs(title = "Impacto de la Densidad en la Sensibilidad", x = "Geometría (Grosor - Longitud)", y = "Factor de Galga Estabilizado", alpha = "Densidad") +
   theme_minimal() + 
   scale_alpha_manual(values = c("15% Infill" = 0.4, "100% Solid" = 0.9)) +
   guides(fill = "none", alpha = guide_legend(override.aes = list(fill = "gray30", color = "black"))) +
@@ -231,7 +234,7 @@ grafica_gf_densidad <- ggplot(df_densidad, aes(x = Geometria, y = GF_Stabilized,
 # 3. Gráfica Histéresis
 grafica_hist_densidad <- ggplot(df_densidad, aes(x = Geometria, y = Hyst_Abs, fill = Geometria, alpha = Densidad, group = interaction(Geometria, Densidad))) +
   geom_boxplot(outlier.shape = NA, position = position_dodge(0.8)) +
-  labs(title = "Impact of Density on Hysteresis", x = "Geometry (Thickness - Length)", y = "Hysteresis Area", alpha = "Density") +
+  labs(title = "Impacto de la Densidad en la Histéresis", x = "Geometría (Grosor - Longitud)", y = "Área de Histéresis", alpha = "Densidad") +
   theme_minimal() + 
   scale_alpha_manual(values = c("15% Infill" = 0.4, "100% Solid" = 0.9)) +
   guides(fill = "none", alpha = guide_legend(override.aes = list(fill = "gray30", color = "black"))) +
@@ -297,25 +300,25 @@ generar_grafica_repetibilidad <- function(df, titulo, etiqueta_y) {
     geom_point(size = 4, alpha = 0.8) +
     labs(
       title = titulo, 
-      x = paste("Specimen 1 -", etiqueta_y), 
-      y = paste("Specimen 2 -", etiqueta_y), 
-      color = "Topology",
-      shape = "Geometry"
+      x = paste("Probeta 1", etiqueta_y), 
+      y = paste("Probeta 2", etiqueta_y), 
+      color = "Topología",
+      shape = "Geometría"
     ) +
     scale_x_continuous(limits = c(min_val - margen, max_val + margen)) +
     scale_y_continuous(limits = c(min_val - margen, max_val + margen)) +
     coord_equal() + 
     theme_minimal() + 
-    scale_color_brewer(palette = "Set1") +
+    scale_color_manual(values = colores_patron) +
     theme(
       plot.title = element_text(hjust = 0.5, face = "bold")
     )
 }
 
 # Generar las tres gráficas solicitadas
-grafica_rep_gf <- generar_grafica_repetibilidad(df_rep_gf, "Repeatability: Gauge Factor (GF)", "Gauge Factor (GF)")
-grafica_rep_lin <- generar_grafica_repetibilidad(df_rep_lin, "Repeatability: Linearity (R²)", "Linearity (R²)")
-grafica_rep_hist <- generar_grafica_repetibilidad(df_rep_hist, "Repeatability: Hysteresis Area", "Hysteresis Area")
+grafica_rep_gf <- generar_grafica_repetibilidad(df_rep_gf, "Repetibilidad: Factor de Galga (GF)","")
+grafica_rep_lin <- generar_grafica_repetibilidad(df_rep_lin, "Repetibilidad: Linealidad (R²)", "")
+grafica_rep_hist <- generar_grafica_repetibilidad(df_rep_hist, "Repetibilidad: Área de Histéresis", "")
 
 # Mostrar las gráficas en consola / panel de plots
 print(grafica_rep_gf)
